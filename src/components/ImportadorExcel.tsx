@@ -12,6 +12,8 @@ const LOTE = 500;
 export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<Record<Tipo, Mapeo>> }) {
   const [tipo, setTipo] = useState<Tipo>("sap");
   const [financiera, setFinanciera] = useState<string>("");
+  const [statusFijo, setStatusFijo] = useState<"" | "en_inventario" | "facturada_en_cartera" | "vendida">("");
+  const [fechaReporte, setFechaReporte] = useState(new Date().toISOString().slice(0, 10));
   const [nombre, setNombre] = useState("");
   const [lectura, setLectura] = useState<HojaLeida | null>(null);
   const [mapeo, setMapeo] = useState<Mapeo>({});
@@ -45,8 +47,8 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
 
   const proc = useMemo(() => {
     if (!lectura || !mapeo.vin) return null;
-    return tipo === "sap" ? procesarSAP(lectura.filas, mapeo) : procesarFinanciera(lectura.filas, mapeo, financiera || undefined);
-  }, [lectura, mapeo, tipo, financiera]);
+    return tipo === "sap" ? procesarSAP(lectura.filas, mapeo, { statusFijo: statusFijo || undefined, fechaReporte }) : procesarFinanciera(lectura.filas, mapeo, financiera || undefined);
+  }, [lectura, mapeo, tipo, financiera, statusFijo, fechaReporte]);
 
   const listo = !!proc && proc.validas.length > 0 && (tipo === "sap" || !!financiera || !!mapeo.financiera);
 
@@ -101,6 +103,17 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
         </label>
       )}
 
+      {tipo === "sap" && (
+        <label className="block text-sm">Status de las unidades de este archivo
+          <select value={statusFijo} onChange={(e) => setStatusFijo(e.target.value as typeof statusFijo)} className={sel}>
+            <option value="">Según la columna de status (o “en inventario” si no hay)</option>
+            <option value="en_inventario">Todas en inventario</option>
+            <option value="facturada_en_cartera">Todas facturadas en cartera</option>
+            <option value="vendida">Todas vendidas / con salida</option>
+          </select>
+        </label>
+      )}
+
       <input type="file" accept=".xlsx" onChange={(e) => void cargar(e.target.files?.[0], undefined, tipo)}
         className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:text-white file:px-4 file:py-2" />
       {error && <p className="rounded-lg bg-red-50 text-red-800 text-sm p-3">{error}</p>}
@@ -118,6 +131,11 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
           <section>
             <h3 className="font-semibold mb-1">Mapeo de columnas</h3>
             <p className="text-xs text-slate-500 mb-2">Sugerido automáticamente; se guarda para la próxima carga.</p>
+            {tipo === "sap" && mapeo.antiguedad_dias && !mapeo.fecha_alta_inventario && (
+              <label className="block text-sm mb-2">Fecha del reporte (alta = esta fecha − antigüedad en días)
+                <input type="date" value={fechaReporte} onChange={(e) => setFechaReporte(e.target.value)} className={sel} />
+              </label>
+            )}
             <div className="space-y-2">
               {campos.map((c) => (
                 <label key={c.clave} className="grid grid-cols-2 gap-2 items-center text-sm">
@@ -147,6 +165,11 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
                   </tbody>
                 </table>
               </div>
+              {proc.sinReconocer && Object.entries(proc.sinReconocer).map(([campo, vals]) => (
+                <p key={campo} className="rounded-lg bg-amber-50 text-amber-900 p-2 text-xs">
+                  Valores de “{campo}” sin reconocer (quedan vacíos): {Object.entries(vals).map(([v, n]) => `${v} (${n})`).join(", ")}
+                </p>
+              ))}
               {proc.errores.length > 0 && (
                 <details>
                   <summary className="cursor-pointer text-red-700">Ver errores ({proc.errores.length})</summary>

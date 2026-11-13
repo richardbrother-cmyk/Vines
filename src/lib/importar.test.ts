@@ -70,7 +70,8 @@ describe("Excel demo", () => {
     expect(map.vin).toBe("VIN");
     expect(map.fecha_alta_inventario).toBe("Fecha alta inventario");
     expect(map.division_sap).toBe("División SAP");
-    expect(Object.values(map).filter(Boolean).length).toBe(CAMPOS_SAP.length);
+    expect(Object.values(map).filter(Boolean).length).toBe(CAMPOS_SAP.length - 1); // el demo no trae antigüedad
+    expect(map.antiguedad_dias).toBe("");
     const r = procesarSAP(h.filas, map);
     expect(r.errores).toEqual([]);
     expect(r.validas).toHaveLength(20);
@@ -78,5 +79,31 @@ describe("Excel demo", () => {
     const mf = sugerirMapeo(h.encabezados, CAMPOS_FIN);
     expect(mf.saldo).toBe("Saldo");
     expect(mf.fecha_vencimiento_plan_piso).toBe("Vencimiento plan piso");
+  });
+});
+
+describe("formato real de SAP (Inventario_gdl)", () => {
+  const enc = ["Desc. Segmento", "Lote", "Año Modelo", "Modelo", "Cod. Sucursal", "Serial de Motor", "VIN", "Inventario", "Valor Inventario", "Antigüedad Inventario"];
+  const fila = (n: number, seg: string, vin: string, dias: number) => ({
+    "Desc. Segmento": seg, Lote: "N0001", "Año Modelo": "2026", Modelo: "M2106", "Cod. Sucursal": "4105",
+    "Serial de Motor": "99", VIN: vin, Inventario: 1, "Valor Inventario": 1877409.37, "Antigüedad Inventario": dias, __fila: n,
+  });
+  it("mapea solo, deriva fecha de alta, tipo y reporta segmentos desconocidos", () => {
+    const m = sugerirMapeo(enc, CAMPOS_SAP);
+    expect(m).toMatchObject({ division_sap: "Cod. Sucursal", antiguedad_dias: "Antigüedad Inventario", segmento: "Desc. Segmento", costo: "Valor Inventario", lote_sap: "Lote" });
+    const r = procesarSAP([
+      fila(2, "CARGA", "3ALHCYFE5TDWW4838", 345),
+      fila(3, "VEHICULOS SEMINUEVOS", "3ALACWFC3VDXC3680", 10),
+      fila(4, "FL360", "JLMCPG1A9TK000239", 5),
+    ], m, { fechaReporte: "2026-11-13" });
+    expect(r.errores).toEqual([]);
+    expect(r.validas[0]).toMatchObject({ fecha_alta_inventario: "2025-12-03", division_sap: "4105", segmento: "carga", tipo: null });
+    expect(r.validas[1]).toMatchObject({ segmento: "seminuevos", tipo: "usada" });
+    expect(r.sinReconocer?.segmento).toEqual({ FL360: 1 });
+  });
+  it("statusFijo fuerza facturada_en_cartera", () => {
+    const m = sugerirMapeo(enc, CAMPOS_SAP);
+    const r = procesarSAP([fila(2, "CARGA", "3ALHCYFE5TDWW4838", 1)], m, { statusFijo: "facturada_en_cartera" });
+    expect(r.validas[0].status).toBe("facturada_en_cartera");
   });
 });

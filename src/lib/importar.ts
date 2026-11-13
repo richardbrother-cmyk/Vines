@@ -12,9 +12,10 @@ export const CAMPOS_SAP: Campo[] = [
   { clave: "tipo", etiqueta: "Tipo (nueva/usada)", alias: ["tipo", "condicion", "nueva usada"] },
   { clave: "segmento", etiqueta: "Segmento", alias: ["segmento", "linea", "familia", "clase"] },
   { clave: "lote_sap", etiqueta: "Lote SAP", alias: ["lote", "lote sap", "batch"] },
-  { clave: "division_sap", etiqueta: "División SAP", alias: ["division", "division sap", "centro", "div"] },
+  { clave: "division_sap", etiqueta: "División SAP", alias: ["division", "division sap", "cod sucursal", "codigo sucursal", "sucursal", "centro", "div"] },
   { clave: "costo", etiqueta: "Costo", alias: ["costo", "valor", "costo total", "importe", "valor inventario"] },
   { clave: "fecha_alta_inventario", etiqueta: "Fecha de alta en inventario", alias: ["fecha alta inventario", "fecha alta", "fecha de alta", "fecha entrada", "fecha ingreso", "alta inventario"] },
+  { clave: "antiguedad_dias", etiqueta: "Antigüedad en inventario (días)", alias: ["antiguedad inventario", "antiguedad", "dias en inventario", "dias inventario"] },
   { clave: "status", etiqueta: "Status", alias: ["status", "estatus", "estado"] },
 ];
 
@@ -130,12 +131,33 @@ export function normalizarFinanciera(v: unknown): string | null {
 
 // ---------------------------------------------------------------- procesamiento
 export interface ErrorFila { fila: number; vin: string; error: string }
-export interface Procesado<T> { validas: T[]; errores: ErrorFila[]; duplicadas: number; vinsCorregidos: number }
+export interface Procesado<T> {
+  validas: T[]; errores: ErrorFila[]; duplicadas: number; vinsCorregidos: number;
+  /** Valores de texto que no se pudieron reconocer (p. ej. segmentos nuevos), con su conteo. */
+  sinReconocer?: Record<string, Record<string, number>>;
+}
+
+export interface OpcionesSAP {
+  /** Fuerza el status de todas las filas (p. ej. archivo de unidades facturadas en cartera). */
+  statusFijo?: "en_inventario" | "facturada_en_cartera" | "vendida";
+  /** Fecha del reporte (YYYY-MM-DD): base para calcular alta = fecha − antigüedad en días. */
+  fechaReporte?: string;
+}
+
+function restarDias(fecha: string, dias: number): string {
+  return new Date(Date.parse(fecha + "T00:00:00Z") - dias * 86400000).toISOString().slice(0, 10);
+}
 
 type Fila = Record<string, unknown>;
 const get = (f: Fila, m: Mapeo, c: string) => (m[c] ? f[m[c]] : undefined);
 
-export function procesarSAP(filas: Fila[], m: Mapeo): Procesado<Record<string, unknown>> {
+export function procesarSAP(filas: Fila[], m: Mapeo, opc: OpcionesSAP = {}): Procesado<Record<string, unknown>> {
+  const base = opc.fechaReporte ?? new Date().toISOString().slice(0, 10);
+  const sinReconocer: Record<string, Record<string, number>> = {};
+  const anotar = (campo: string, crudo: unknown) => {
+    const t = texto(crudo);
+    if (t) (sinReconocer[campo] ??= {})[t] = (sinReconocer[campo][t] ?? 0) + 1;
+  };
   const porVin = new Map<string, Record<string, unknown>>();
   const errores: ErrorFila[] = [];
   let duplicadas = 0, vinsCorregidos = 0;
@@ -146,22 +168,29 @@ export function procesarSAP(filas: Fila[], m: Mapeo): Procesado<Record<string, u
     if (!esVinValido(vin)) { errores.push({ fila: n, vin: crudo, error: "VIN inválido tras normalizar" }); continue; }
     if (vin !== crudo.trim()) vinsCorregidos++;
     const anio = parsearNumero(get(f, m, "anio"));
+    const segmento = normalizarSegmento(get(f, m, "segmento"));
+    if (!segmento) anotar("segmento", get(f, m, "segmento"));
+    const statusCol = normalizarStatus(get(f, m, "status"));
+    if (!statusCol && get(f, m, "status")) anotar("status", get(f, m, "status"));
+    const dias = parsearNumero(get(f, m, "antiguedad_dias"));
     const fila: Record<string, unknown> = {
       vin,
       modelo: texto(get(f, m, "modelo")),
       anio: anio && anio >= 1980 && anio <= 2100 ? Math.round(anio) : null,
-      tipo: normalizarTipo(get(f, m, "tipo")),
-      segmento: normalizarSegmento(get(f, m, "segmento")),
+      // Sin columna de tipo: los "seminuevos" son usadas; lo demás se deja sin definir (no se adivina).
+      tipo: normalizarTipo(get(f, m, "tipo")) ?? (segmento === "seminuevos" ? "usada" : null),
+      segmento,
       lote_sap: texto(get(f, m, "lote_sap")),
       division_sap: texto(get(f, m, "division_sap")),
       costo: parsearNumero(get(f, m, "costo")),
-      fecha_alta_inventario: parsearFecha(get(f, m, "fecha_alta_inventario")),
-      status: normalizarStatus(get(f, m, "status")),
+      // Fecha de alta explícita; si no, se deriva de la antigüedad (días) respecto a la fecha del reporte.
+      fecha_alta_inventario: parsearFecha(get(f, m, "fecha_alta_inventario")) ?? (dias != null && dias >= 0 ? restarDias(base, Math.round(dias)) : null),
+      status: opc.statusFijo ?? statusCol,
     };
     if (porVin.has(vin)) duplicadas++; // el VIN es único: la última fila del archivo gana
     porVin.set(vin, fila);
   }
-  return { validas: [...porVin.values()], errores, duplicadas, vinsCorregidos };
+  return { validas: [...porVin.values()], errores, duplicadas, vinsCorregidos, sinReconocer };
 }
 
 export function procesarFinanciera(filas: Fila[], m: Mapeo, financieraFija?: string): Procesado<Record<string, unknown>> {
