@@ -1,5 +1,6 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { crearClienteNavegador } from "@/lib/supabase/client";
 import { leerExcel, type HojaLeida } from "@/lib/excel";
 import {
@@ -7,6 +8,10 @@ import {
 } from "@/lib/importar";
 
 type Tipo = "sap" | "financiera";
+interface Ausentes {
+  en_alcance: number; ausentes_total: number;
+  ausentes: { vin: string; modelo: string | null; anio: number | null; segmento: string | null; division_sap: string | null; localidad: string | null }[];
+}
 const LOTE = 500;
 
 export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<Record<Tipo, Mapeo>> }) {
@@ -21,6 +26,14 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
   const [progreso, setProgreso] = useState<string | null>(null);
   const [resultado, setResultado] = useState<string | null>(null);
   const buffer = useRef<ArrayBuffer | null>(null);
+  // Unidades que siguen "en inventario" en la base pero ya no vienen en el archivo SAP
+  const [alcance, setAlcance] = useState<"divisiones" | "todo">("divisiones");
+  const [ausentes, setAusentes] = useState<Ausentes | null>(null);
+  const [errAus, setErrAus] = useState<string | null>(null);
+  const [accion, setAccion] = useState<"" | "facturada_en_cartera" | "vendida">("");
+  const [confirmarAus, setConfirmarAus] = useState(false);
+  const [msgAus, setMsgAus] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
   const campos = tipo === "sap" ? CAMPOS_SAP : CAMPOS_FIN;
 
   function mapeoInicial(enc: string[], t: Tipo): Mapeo {
@@ -49,6 +62,38 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
     if (!lectura || !mapeo.vin) return null;
     return tipo === "sap" ? procesarSAP(lectura.filas, mapeo, { statusFijo: statusFijo || undefined, fechaReporte }) : procesarFinanciera(lectura.filas, mapeo, financiera || undefined);
   }, [lectura, mapeo, tipo, financiera, statusFijo, fechaReporte]);
+
+  // El archivo es una "foto" del inventario solo si sus unidades se cargan en inventario.
+  const esFoto = tipo === "sap" && (statusFijo === "" || statusFijo === "en_inventario");
+  const vinsArchivo = useMemo(() => (proc?.validas ?? []).map((v) => String(v.vin)), [proc]);
+  const divisionesArchivo = useMemo(
+    () => [...new Set((proc?.validas ?? []).map((v) => v.division_sap).filter((d): d is string => typeof d === "string" && d !== ""))],
+    [proc],
+  );
+  const divisionesAlcance = alcance === "divisiones" && divisionesArchivo.length > 0 ? divisionesArchivo : null;
+
+  useEffect(() => {
+    if (!esFoto || vinsArchivo.length === 0) { setAusentes(null); setErrAus(null); return; }
+    let vivo = true;
+    const t = setTimeout(async () => {
+      const { data, error } = await crearClienteNavegador().rpc("unidades_ausentes", { p_vins: vinsArchivo, p_divisiones: divisionesAlcance });
+      if (!vivo) return;
+      if (error) { setErrAus(error.message); setAusentes(null); } else { setErrAus(null); setAusentes(data as Ausentes); }
+    }, 600);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [esFoto, vinsArchivo, divisionesAlcance, recarga]);
+
+  async function aplicarAusentes() {
+    if (!accion) return;
+    setConfirmarAus(false);
+    const { data, error } = await crearClienteNavegador().rpc("marcar_ausentes", {
+      p_vins: vinsArchivo, p_status: accion, p_divisiones: divisionesAlcance,
+    });
+    if (error) { setErrAus(error.message); return; }
+    setMsgAus(`${data} unidades marcadas como ${accion === "vendida" ? "vendidas / con salida" : "facturadas en cartera"}.`);
+    setAccion("");
+    setRecarga((n) => n + 1);
+  }
 
   const listo = !!proc && proc.validas.length > 0 && (tipo === "sap" || !!financiera || !!mapeo.financiera);
 
@@ -179,6 +224,56 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
               {tipo === "sap" && <p className="text-xs text-slate-500">Las unidades que no vengan en el archivo no se modifican. Los campos vacíos no borran datos. La localidad solo se asigna (por división) a unidades nuevas o sin ubicación.</p>}
             </section>
           )}
+
+
+          {esFoto && ausentes && ausentes.ausentes_total > 0 && (
+            <section className={`rounded-2xl border p-4 text-sm space-y-3 ${ausentes.ausentes_total > 0.3 * ausentes.en_alcance && ausentes.en_alcance > 20 ? "border-red-300 bg-red-50 text-red-900" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
+              <h3 className="font-semibold">{ausentes.ausentes_total} unidades ya no vienen en este archivo</h3>
+              <p>
+                Siguen como “en inventario” en la base ({ausentes.ausentes_total} de {ausentes.en_alcance}
+                {divisionesAlcance ? ` en las divisiones ${divisionesAlcance.join(", ")}` : " en todo el inventario"}).
+                Probablemente se facturaron o se vendieron.
+                {ausentes.ausentes_total > 0.3 * ausentes.en_alcance && ausentes.en_alcance > 20 && " Es una proporción alta: ¿el archivo está incompleto o es de una sola plaza?"}
+              </p>
+              {divisionesArchivo.length > 0 && (
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={alcance === "todo"} onChange={(e) => setAlcance(e.target.checked ? "todo" : "divisiones")} />
+                  Comparar contra todo el inventario (no solo las divisiones que trae el archivo)
+                </label>
+              )}
+              <details>
+                <summary className="cursor-pointer">Ver unidades{ausentes.ausentes_total > ausentes.ausentes.length ? ` (primeras ${ausentes.ausentes.length})` : ""}</summary>
+                <ul className="mt-1 text-xs space-y-0.5">
+                  {ausentes.ausentes.map((u) => (
+                    <li key={u.vin}><Link href={`/unidades/${u.vin}`} className="font-mono underline" target="_blank">{u.vin}</Link> {u.modelo} {u.anio} · div. {u.division_sap ?? "—"} · {u.localidad ?? "sin ubicación"}</li>
+                  ))}
+                </ul>
+              </details>
+              <label className="block">¿Qué hago con ellas?
+                <select value={accion} onChange={(e) => { setAccion(e.target.value as typeof accion); setConfirmarAus(false); }} className={sel + " text-slate-900"}>
+                  <option value="">Nada por ahora (siguen en inventario)</option>
+                  <option value="facturada_en_cartera">Marcarlas como facturadas en cartera</option>
+                  <option value="vendida">Marcarlas como vendidas / con salida</option>
+                </select>
+              </label>
+              {accion && !confirmarAus && (
+                <button onClick={() => setConfirmarAus(true)} className="w-full rounded-xl bg-slate-900 text-white py-2 font-semibold">
+                  Aplicar a {ausentes.ausentes_total} unidades
+                </button>
+              )}
+              {accion && confirmarAus && (
+                <div className="flex gap-2">
+                  <button onClick={() => setConfirmarAus(false)} className="flex-1 rounded-xl bg-white text-slate-900 py-2">Cancelar</button>
+                  <button onClick={() => void aplicarAusentes()} className="flex-1 rounded-xl bg-red-600 text-white py-2 font-semibold">Sí, cambiar status</button>
+                </div>
+              )}
+            </section>
+          )}
+          {esFoto && ausentes && ausentes.ausentes_total === 0 && vinsArchivo.length > 0 && (
+            <p className="rounded-lg bg-emerald-50 text-emerald-900 text-sm p-3">Todas las unidades en inventario de la base vienen en este archivo.</p>
+          )}
+          {errAus && <p className="rounded-lg bg-red-50 text-red-800 text-sm p-3">No se pudo comparar contra la base: {errAus}</p>}
+          {msgAus && <p className="rounded-lg bg-emerald-50 text-emerald-900 text-sm p-3">{msgAus}</p>}
 
           <button onClick={() => void importar()} disabled={!listo || !!progreso}
             className="w-full rounded-xl bg-emerald-600 text-white py-3 font-semibold disabled:opacity-40">

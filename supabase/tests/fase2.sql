@@ -15,6 +15,10 @@ select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000b2
 do $$ begin
   begin perform importar_unidades('[]'); raise exception 'debio fallar';
   exception when others then assert sqlerrm = 'sin_permiso', sqlerrm; end;
+  begin perform unidades_ausentes('[]'); raise exception 'debio fallar';
+  exception when others then assert sqlerrm = 'sin_permiso', sqlerrm; end;
+  begin perform marcar_ausentes('[]', 'vendida'); raise exception 'debio fallar';
+  exception when others then assert sqlerrm = 'sin_permiso', sqlerrm; end;
 end $$;
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000b1', true);
@@ -72,6 +76,26 @@ do $$ declare d jsonb; begin
   d := dashboard_resumen();
   assert jsonb_array_length(d->'por_financiera') >= 1, 'por financiera';
   assert (d->>'facturadas')::int >= 1, 'facturadas';
+end $$;
+
+-- unidades ausentes del archivo SAP
+do $$ declare r jsonb; n int; begin
+  perform importar_unidades('[
+    {"vin":"3ALACWFC0MDMZ0003","division_sap":"9001"},{"vin":"3ALACWFC0MDMZ0004","division_sap":"9001"},
+    {"vin":"3ALACWFC0MDMZ0005","division_sap":"9002"}]');
+  -- el archivo trae solo Z0003; alcance = división 9001 -> ausentes: Z0001 y Z0004 (Z0005 es de otra división)
+  r := unidades_ausentes('["3alacwfc0mdmz0003"]', array['9001']);
+  assert (r->>'en_alcance')::int = 3 and (r->>'ausentes_total')::int = 2, 'ausentes: ' || r::text;
+  -- sin alcance de división: también entra Z0005 (Z0002 es facturada, no cuenta)
+  assert (unidades_ausentes('["3ALACWFC0MDMZ0003"]', null)->>'ausentes_total')::int >= 3, 'sin alcance';
+  begin perform marcar_ausentes('["3ALACWFC0MDMZ0003"]', 'en_inventario', array['9001']); raise exception 'debio fallar';
+  exception when others then assert sqlerrm = 'status_no_permitido', sqlerrm; end;
+  n := marcar_ausentes('["3ALACWFC0MDMZ0003"]', 'vendida', array['9001']);
+  assert n = 2, 'marcadas ' || n;
+  assert (select status::text from unidades where vin = '3ALACWFC0MDMZ0004') = 'vendida', 'Z0004 vendida';
+  assert (select status::text from unidades where vin = '3ALACWFC0MDMZ0005') = 'en_inventario', 'Z0005 intacta';
+  assert (select status::text from unidades where vin = '3ALACWFC0MDMZ0003') = 'en_inventario', 'Z0003 intacta';
+  assert (unidades_ausentes('["3ALACWFC0MDMZ0003"]', array['9001'])->>'ausentes_total')::int = 0, 'ya no hay ausentes';
 end $$;
 
 -- el auditor no ve costo/saldo en la vista

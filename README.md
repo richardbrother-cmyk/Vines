@@ -10,7 +10,7 @@ escaneando VINs en el patio, con validación en vivo, cola offline y reporte de 
 ## 1. Configurar Supabase
 
 1. Crea un proyecto en <https://supabase.com>.
-2. En **SQL Editor** ejecuta, en orden, `supabase/migrations/0001_esquema.sql`, `0002_fase2.sql`, `0003_segmento_fl360.sql` y `supabase/seed.sql`
+2. En **SQL Editor** ejecuta, en orden, `supabase/migrations/0001_esquema.sql`, `0002_fase2.sql`, `0003_segmento_fl360.sql`, `0004_unidades_ausentes.sql` y `supabase/seed.sql`
    (o usa `supabase db push` con la CLI). `seed.sql` crea las 4 localidades (Patio Vallarta, Zapopan, Guadalajara, Laredo) **sin divisiones**: asígnalas con `update localidades set divisiones = '{6056}' where nombre = 'Laredo';` cuando se sepa a qué localidad corresponde cada Cod. Sucursal. Sin divisiones, las unidades importadas quedan sin ubicación y el primer conteo (con *actualizar ubicación*) la fija.
 3. En **Authentication → Providers** deja habilitado *Email*. Crea tus usuarios en
    **Authentication → Users** (o desactiva el registro público si solo invitas).
@@ -81,9 +81,10 @@ y despliega (`vercel deploy`). En el celular: *Compartir → Agregar a pantalla 
    (se detecta la fila de encabezados aunque haya títulos arriba).
 2. El mapeo de columnas se sugiere solo (por nombre) y se puede corregir; **se guarda** en `mapeos_columnas` para la siguiente carga.
 3. La vista previa muestra filas válidas, errores, VIN repetidos y VIN corregidos (O→0, I→1, sufijos) antes de importar.
-4. **Upsert por VIN**: nunca duplica; los campos vacíos no borran datos; la ubicación física ya conocida no se pisa
+4. **Unidades que ya no vienen**: al cargar un archivo SAP de inventario, el importador compara contra la base y avisa cuántas unidades siguen "en inventario" pero no están en el archivo (por defecto solo dentro de las divisiones que trae el archivo; hay una casilla para comparar contra todo). Alerta en rojo si son >30 % (posible archivo incompleto). Puedes marcarlas como *facturadas en cartera* o *vendidas*, con confirmación y registro en `bitacora`; nunca se cambia nada sin tu acción.
+5. **Upsert por VIN**: nunca duplica; los campos vacíos no borran datos; la ubicación física ya conocida no se pisa
    (la localidad se asigna por *división SAP* solo a unidades nuevas o sin ubicación). Cada carga queda en la bitácora `cargas` con sus errores.
-5. Financieras: si el archivo trae dos filas por VIN, la 1.ª es la disposición 1 (chasis) y la 2.ª la 2 (carrocería), salvo que mapees una columna de disposición.
+6. Financieras: si el archivo trae dos filas por VIN, la 1.ª es la disposición 1 (chasis) y la 2.ª la 2 (carrocería), salvo que mapees una columna de disposición.
    Los VIN que no existan en el inventario se **omiten y se reportan** (carga primero SAP).
 
 ## Normalización de VIN (`src/lib/vin.ts`)
