@@ -1,0 +1,170 @@
+"use client";
+import { useMemo, useRef, useState } from "react";
+import { crearClienteNavegador } from "@/lib/supabase/client";
+import { leerExcel, type HojaLeida } from "@/lib/excel";
+import {
+  CAMPOS_FIN, CAMPOS_SAP, FINANCIERAS, procesarFinanciera, procesarSAP, sugerirMapeo, type Mapeo,
+} from "@/lib/importar";
+
+type Tipo = "sap" | "financiera";
+const LOTE = 500;
+
+export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<Record<Tipo, Mapeo>> }) {
+  const [tipo, setTipo] = useState<Tipo>("sap");
+  const [financiera, setFinanciera] = useState<string>("");
+  const [nombre, setNombre] = useState("");
+  const [lectura, setLectura] = useState<HojaLeida | null>(null);
+  const [mapeo, setMapeo] = useState<Mapeo>({});
+  const [error, setError] = useState<string | null>(null);
+  const [progreso, setProgreso] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<string | null>(null);
+  const buffer = useRef<ArrayBuffer | null>(null);
+  const campos = tipo === "sap" ? CAMPOS_SAP : CAMPOS_FIN;
+
+  function mapeoInicial(enc: string[], t: Tipo): Mapeo {
+    const cs = t === "sap" ? CAMPOS_SAP : CAMPOS_FIN;
+    const sugerido = sugerirMapeo(enc, cs);
+    const guardado = mapeosGuardados[t] ?? {};
+    // El mapeo guardado manda si esas columnas existen en el archivo; si no, la sugerencia.
+    return Object.fromEntries(cs.map((c) => [c.clave, enc.includes(guardado[c.clave] ?? "\0") ? guardado[c.clave] : sugerido[c.clave]]));
+  }
+
+  async function cargar(archivo: File | undefined, hoja?: string, t: Tipo = tipo) {
+    if (!archivo && !buffer.current) return;
+    setError(null); setResultado(null);
+    try {
+      if (archivo) { buffer.current = await archivo.arrayBuffer(); setNombre(archivo.name); }
+      const l = await leerExcel(buffer.current!, hoja);
+      setLectura(l);
+      setMapeo(mapeoInicial(l.encabezados, t));
+    } catch (e) {
+      setLectura(null);
+      setError(e instanceof Error ? e.message : "No se pudo leer el archivo (¿es .xlsx?)");
+    }
+  }
+
+  const proc = useMemo(() => {
+    if (!lectura || !mapeo.vin) return null;
+    return tipo === "sap" ? procesarSAP(lectura.filas, mapeo) : procesarFinanciera(lectura.filas, mapeo, financiera || undefined);
+  }, [lectura, mapeo, tipo, financiera]);
+
+  const listo = !!proc && proc.validas.length > 0 && (tipo === "sap" || !!financiera || !!mapeo.financiera);
+
+  async function importar() {
+    if (!proc || !lectura) return;
+    setError(null); setResultado(null);
+    const sb = crearClienteNavegador();
+    const fn = tipo === "sap" ? "importar_unidades" : "importar_financiamientos";
+    let ins = 0, upd = 0;
+    const omitidas: string[] = [];
+    let fallo: string | null = null;
+    for (let i = 0; i < proc.validas.length; i += LOTE) {
+      setProgreso(`Importando ${Math.min(i + LOTE, proc.validas.length)} de ${proc.validas.length}…`);
+      const { data, error } = await sb.rpc(fn, { p_filas: proc.validas.slice(i, i + LOTE) });
+      if (error) { fallo = error.message; break; }
+      const r = data as { insertadas: number; actualizadas: number; omitidas_sin_unidad?: string[] };
+      ins += r.insertadas; upd += r.actualizadas; omitidas.push(...(r.omitidas_sin_unidad ?? []));
+    }
+    const errores = [
+      ...proc.errores,
+      ...omitidas.map((vin) => ({ fila: 0, vin, error: "VIN no existe en inventario (cárgalo primero desde SAP)" })),
+      ...(fallo ? [{ fila: 0, vin: "", error: `Carga interrumpida: ${fallo}` }] : []),
+    ].slice(0, 500);
+    await sb.from("cargas").insert({
+      tipo, archivo: nombre, filas_total: lectura.filas.length, insertadas: ins, actualizadas: upd, errores,
+    });
+    if (!fallo) await sb.from("mapeos_columnas").upsert({ tipo, mapeo, actualizado_en: new Date().toISOString() });
+    setProgreso(null);
+    if (fallo) setError(`Se interrumpió: ${fallo}. Lo ya importado quedó guardado (reintentar es seguro).`);
+    setResultado(`Listo: ${ins} nuevas, ${upd} actualizadas, ${proc.errores.length} filas con error${omitidas.length ? `, ${omitidas.length} VIN no existen en inventario` : ""}.`);
+  }
+
+  const sel = "w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-2 py-2 text-sm";
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-2">
+        {(["sap", "financiera"] as Tipo[]).map((t) => (
+          <button key={t} onClick={() => { setTipo(t); if (lectura) setMapeo(mapeoInicial(lectura.encabezados, t)); setResultado(null); }}
+            className={`rounded-xl py-3 font-semibold ${tipo === t ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "bg-slate-100 dark:bg-slate-800"}`}>
+            {t === "sap" ? "Inventario SAP" : "Estado de cuenta financiera"}
+          </button>
+        ))}
+      </div>
+
+      {tipo === "financiera" && (
+        <label className="block text-sm">Financiera de este archivo
+          <select value={financiera} onChange={(e) => setFinanciera(e.target.value)} className={sel}>
+            <option value="">(tomarla de una columna del archivo)</option>
+            {FINANCIERAS.map((f) => <option key={f}>{f}</option>)}
+          </select>
+        </label>
+      )}
+
+      <input type="file" accept=".xlsx" onChange={(e) => void cargar(e.target.files?.[0], undefined, tipo)}
+        className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:text-white file:px-4 file:py-2" />
+      {error && <p className="rounded-lg bg-red-50 text-red-800 text-sm p-3">{error}</p>}
+
+      {lectura && (
+        <>
+          {lectura.hojas.length > 1 && (
+            <label className="block text-sm">Hoja
+              <select value={lectura.hoja} onChange={(e) => void cargar(undefined, e.target.value)} className={sel}>
+                {lectura.hojas.map((h) => <option key={h}>{h}</option>)}
+              </select>
+            </label>
+          )}
+
+          <section>
+            <h3 className="font-semibold mb-1">Mapeo de columnas</h3>
+            <p className="text-xs text-slate-500 mb-2">Sugerido automáticamente; se guarda para la próxima carga.</p>
+            <div className="space-y-2">
+              {campos.map((c) => (
+                <label key={c.clave} className="grid grid-cols-2 gap-2 items-center text-sm">
+                  <span>{c.etiqueta}{c.requerido && " *"}</span>
+                  <select value={mapeo[c.clave] ?? ""} onChange={(e) => setMapeo({ ...mapeo, [c.clave]: e.target.value })} className={sel}>
+                    <option value="">— sin mapear —</option>
+                    {lectura.encabezados.map((h) => <option key={h}>{h}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          {proc && (
+            <section className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-sm space-y-2">
+              <h3 className="font-semibold">Vista previa</h3>
+              <p>{lectura.filas.length} filas leídas · <b>{proc.validas.length} válidas</b> · {proc.errores.length} con error
+                {proc.duplicadas > 0 && ` · ${proc.duplicadas} VIN repetidos (gana la última fila)`}
+                {proc.vinsCorregidos > 0 && ` · ${proc.vinsCorregidos} VIN corregidos (O→0, I→1, sufijos)`}</p>
+              <div className="overflow-x-auto">
+                <table className="text-xs w-full">
+                  <thead><tr>{Object.keys(proc.validas[0] ?? {}).map((k) => <th key={k} className="text-left pr-3 py-1 text-slate-500">{k}</th>)}</tr></thead>
+                  <tbody>
+                    {proc.validas.slice(0, 5).map((f, i) => (
+                      <tr key={i}>{Object.values(f).map((v, j) => <td key={j} className="pr-3 py-1 whitespace-nowrap">{v == null ? "—" : String(v)}</td>)}</tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {proc.errores.length > 0 && (
+                <details>
+                  <summary className="cursor-pointer text-red-700">Ver errores ({proc.errores.length})</summary>
+                  <ul className="mt-1 text-xs">{proc.errores.slice(0, 50).map((e, i) => <li key={i}>Fila {e.fila}: {e.vin || "—"} — {e.error}</li>)}</ul>
+                </details>
+              )}
+              {tipo === "sap" && <p className="text-xs text-slate-500">Las unidades que no vengan en el archivo no se modifican. Los campos vacíos no borran datos. La localidad solo se asigna (por división) a unidades nuevas o sin ubicación.</p>}
+            </section>
+          )}
+
+          <button onClick={() => void importar()} disabled={!listo || !!progreso}
+            className="w-full rounded-xl bg-emerald-600 text-white py-3 font-semibold disabled:opacity-40">
+            {progreso ?? `Importar ${proc?.validas.length ?? 0} filas`}
+          </button>
+          {tipo === "financiera" && !financiera && !mapeo.financiera && <p className="text-xs text-amber-700">Elige la financiera o mapea una columna que la contenga.</p>}
+        </>
+      )}
+      {resultado && <p className="rounded-lg bg-emerald-50 text-emerald-900 text-sm p-3">{resultado}</p>}
+    </div>
+  );
+}

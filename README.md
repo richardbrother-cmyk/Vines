@@ -3,14 +3,14 @@
 PWA mobile-first (Next.js 15 App Router + React 19 + Supabase) para levantar inventarios físicos
 escaneando VINs en el patio, con validación en vivo, cola offline y reporte de diferencias.
 
-> **Estado: Fase 1** — esquema SQL con RLS, conteo físico con escáner y cola offline, cierre con reporte
-> de diferencias exportable a Excel. **Fase 2 (pendiente):** ficha de unidad, importadores de Excel
-> (SAP / financieras), dashboard y exportes de listados.
+> **Estado: Fases 1 y 2 completas** — esquema SQL con RLS, conteo físico con escáner y cola offline,
+> cierre con reporte de diferencias, ficha de unidad, importadores de Excel (SAP / financieras),
+> dashboard global y por localidad, y exporte a Excel de cualquier listado filtrable.
 
 ## 1. Configurar Supabase
 
 1. Crea un proyecto en <https://supabase.com>.
-2. En **SQL Editor** ejecuta, en orden, `supabase/migrations/0001_esquema.sql` y `supabase/seed.sql`
+2. En **SQL Editor** ejecuta, en orden, `supabase/migrations/0001_esquema.sql`, `0002_fase2.sql` y `supabase/seed.sql`
    (o usa `supabase db push` con la CLI). `seed.sql` crea 3 localidades de ejemplo: edítalas a las reales.
 3. En **Authentication → Providers** deja habilitado *Email*. Crea tus usuarios en
    **Authentication → Users** (o desactiva el registro público si solo invitas).
@@ -64,6 +64,28 @@ y despliega (`vercel deploy`). En el celular: *Compartir → Agregar a pantalla 
    opcionalmente, actualiza la *última ubicación conocida*. No deja cerrar con escaneos sin sincronizar en el dispositivo.
 6. Las sesiones cerradas son **inmutables** (triggers en BD). Correcciones: nueva sesión o nota de admin (`conteo_notas`, con bitácora).
 
+## Pantallas
+
+| Ruta | Qué hace | Roles |
+|---|---|---|
+| `/conteos` | iniciar/continuar conteo por localidad, historial de cerrados | todos (operar: admin, auditor) |
+| `/conteos/[id]` · `/reporte` | escáner, cola offline · diferencias, cierre, Excel | idem |
+| `/unidades` | búsqueda por VIN/últimos dígitos y filtros (localidad, status, financiera, segmento, seguro, plan piso); **Exportar a Excel** respeta los filtros | todos |
+| `/unidades/[vin]` | ficha: ubicación + historial de conteos con fotos/observaciones, financiamiento y saldo, plan piso, seguro con semáforo, costo; alta de acuse de aseguradora (admin) | todos (auditor no ve costo ni saldo) |
+| `/dashboard` | global o por localidad: unidades y valor, por financiera y segmento, seguros vencidos/por vencer, plan piso ≤15/≤30 d, último conteo y % de coincidencia. Cada cifra enlaza al listado filtrado (accionable y exportable) | todos |
+| `/cargas` | importar Excel SAP o de financiera con mapeo de columnas configurable + bitácora | admin |
+
+## Carga de Excel
+
+1. Entra a **Cargas**, elige *Inventario SAP* o *Estado de cuenta financiera* y sube el `.xlsx`
+   (se detecta la fila de encabezados aunque haya títulos arriba).
+2. El mapeo de columnas se sugiere solo (por nombre) y se puede corregir; **se guarda** en `mapeos_columnas` para la siguiente carga.
+3. La vista previa muestra filas válidas, errores, VIN repetidos y VIN corregidos (O→0, I→1, sufijos) antes de importar.
+4. **Upsert por VIN**: nunca duplica; los campos vacíos no borran datos; la ubicación física ya conocida no se pisa
+   (la localidad se asigna por *división SAP* solo a unidades nuevas o sin ubicación). Cada carga queda en la bitácora `cargas` con sus errores.
+5. Financieras: si el archivo trae dos filas por VIN, la 1.ª es la disposición 1 (chasis) y la 2.ª la 2 (carrocería), salvo que mapees una columna de disposición.
+   Los VIN que no existan en el inventario se **omiten y se reportan** (carga primero SAP).
+
 ## Normalización de VIN (`src/lib/vin.ts`)
 
 Mayúsculas, sin espacios/guiones, `O→0`, `I→1`, descarta el prefijo `I` de 18 caracteres que agregan
@@ -78,9 +100,11 @@ algunos lectores Code 39, y trunca a 17. La BD exige `^[A-HJ-NPR-Z0-9]{17}$`.
 ## Pruebas
 
 ```bash
-npm test                      # VIN, clasificación y cola offline (vitest)
+npm test                      # VIN, clasificación, cola offline, normalización/lectura de Excel (vitest)
 npx tsc --noEmit              # tipos
-psql "$DB_URL" -f supabase/tests/flujo_conteo.sql   # flujo completo contra Postgres (permisos, idempotencia, cierre, inmutabilidad)
+psql "$DB_URL" -f supabase/tests/flujo_conteo.sql   # conteo: permisos, idempotencia, cierre, inmutabilidad
+psql "$DB_URL" -f supabase/tests/fase2.sql          # importadores, regla de seguro 355 d, dashboard, RLS de costos
+# (en Supabase real, los inserts a auth.users de las pruebas requieren una base de pruebas, no producción)
 ```
 
 ## Decisiones y desviaciones
