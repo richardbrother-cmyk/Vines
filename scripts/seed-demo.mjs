@@ -49,7 +49,9 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABA
 });
 const { data: locs, error: e0 } = await sb.from("localidades").select("id,nombre,divisiones");
 if (e0 || !locs?.length) throw new Error("Primero aplica supabase/seed.sql (localidades): " + (e0?.message ?? "vacío"));
-const locDe = (div) => locs.find((l) => l.divisiones.includes(div))?.id ?? locs[0].id;
+// Si ninguna localidad tiene la división asignada, se reparten en rotación para tener datos de prueba.
+let rot = 0;
+const locDe = (div) => locs.find((l) => l.divisiones.includes(div))?.id ?? locs[rot++ % locs.length].id;
 
 const check = async (p) => { const { error } = await p; if (error) throw new Error(error.message); };
 await check(sb.from("unidades").upsert(unidades.map((u) => ({

@@ -25,6 +25,7 @@ describe("parsers", () => {
     expect(normalizarFinanciera("Daimler Truck Financial MP-340")).toBe("DAIMLER MP340");
     expect(normalizarFinanciera("BBVA México")).toBe("BBVA IPP");
     expect(normalizarSegmento("Tractocamión")).toBe("tracto");
+    expect(normalizarSegmento("FL360")).toBe("fl360");
     expect(normalizarSegmento("Semirremolque")).toBe("semirremolques");
     expect(normalizarStatus("Facturada en cartera")).toBe("facturada_en_cartera");
   });
@@ -88,7 +89,7 @@ describe("formato real de SAP (Inventario_gdl)", () => {
     "Desc. Segmento": seg, Lote: "N0001", "Año Modelo": "2026", Modelo: "M2106", "Cod. Sucursal": "4105",
     "Serial de Motor": "99", VIN: vin, Inventario: 1, "Valor Inventario": 1877409.37, "Antigüedad Inventario": dias, __fila: n,
   });
-  it("mapea solo, deriva fecha de alta, tipo y reporta segmentos desconocidos", () => {
+  it("mapea solo, deriva fecha de alta, tipo y reconoce FL360", () => {
     const m = sugerirMapeo(enc, CAMPOS_SAP);
     expect(m).toMatchObject({ division_sap: "Cod. Sucursal", antiguedad_dias: "Antigüedad Inventario", segmento: "Desc. Segmento", costo: "Valor Inventario", lote_sap: "Lote" });
     const r = procesarSAP([
@@ -99,7 +100,8 @@ describe("formato real de SAP (Inventario_gdl)", () => {
     expect(r.errores).toEqual([]);
     expect(r.validas[0]).toMatchObject({ fecha_alta_inventario: "2025-12-03", division_sap: "4105", segmento: "carga", tipo: null });
     expect(r.validas[1]).toMatchObject({ segmento: "seminuevos", tipo: "usada" });
-    expect(r.sinReconocer?.segmento).toEqual({ FL360: 1 });
+    expect(r.validas[2].segmento).toBe("fl360");
+    expect(r.sinReconocer?.segmento).toBeUndefined();
   });
   it("statusFijo fuerza facturada_en_cartera", () => {
     const m = sugerirMapeo(enc, CAMPOS_SAP);

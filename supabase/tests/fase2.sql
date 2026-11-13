@@ -21,7 +21,7 @@ select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000b1
 do $$ declare r jsonb; n int; l uuid; st text; cst numeric; begin
   r := importar_unidades('[
     {"vin":"3alacwfc0mdmz0001","modelo":"M2","anio":2024,"tipo":"nueva","segmento":"carga","division_sap":"9001","costo":1000000,"fecha_alta_inventario":"2026-01-01"},
-    {"vin":"3ALACWFC0MDMZ0002","modelo":"Actros","anio":2024,"tipo":"nueva","segmento":"tracto","division_sap":"9002","costo":2000000,"status":"facturada_en_cartera"},
+    {"vin":"3ALACWFC0MDMZ0002","modelo":"Actros","anio":2024,"tipo":"nueva","segmento":"fl360","division_sap":"9002","costo":2000000,"status":"facturada_en_cartera"},
     {"vin":"INVALIDO","modelo":"X"}]');
   assert (r->>'insertadas')::int = 2 and (r->>'actualizadas')::int = 0, 'insert: ' || r::text;
 
@@ -39,6 +39,7 @@ do $$ declare r jsonb; n int; l uuid; st text; cst numeric; begin
   assert cst = 1000000, 'costo intacto';
   assert (select modelo from unidades where vin = '3ALACWFC0MDMZ0001') = 'M2 nuevo', 'modelo actualizado';
   select count(*) into n from unidades where vin like '3ALACWFC0MDMZ%'; assert n = 2, 'sin duplicados';
+  assert (select segmento::text from unidades where vin = '3ALACWFC0MDMZ0002') = 'fl360', 'segmento fl360';
 
   r := importar_financiamientos('[
     {"vin":"3ALACWFC0MDMZ0001","financiera":"SANTANDER","disposicion":1,"concepto":"chasis","saldo":500,"fecha_entrada_plan_piso":"2026-02-01","fecha_vencimiento_plan_piso":"2026-12-01"},

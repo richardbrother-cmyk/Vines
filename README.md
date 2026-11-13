@@ -10,8 +10,8 @@ escaneando VINs en el patio, con validación en vivo, cola offline y reporte de 
 ## 1. Configurar Supabase
 
 1. Crea un proyecto en <https://supabase.com>.
-2. En **SQL Editor** ejecuta, en orden, `supabase/migrations/0001_esquema.sql`, `0002_fase2.sql` y `supabase/seed.sql`
-   (o usa `supabase db push` con la CLI). `seed.sql` crea 3 localidades de ejemplo: edítalas a las reales.
+2. En **SQL Editor** ejecuta, en orden, `supabase/migrations/0001_esquema.sql`, `0002_fase2.sql`, `0003_segmento_fl360.sql` y `supabase/seed.sql`
+   (o usa `supabase db push` con la CLI). `seed.sql` crea las 4 localidades (Patio Vallarta, Zapopan, Guadalajara, Laredo) **sin divisiones**: asígnalas con `update localidades set divisiones = '{6056}' where nombre = 'Laredo';` cuando se sepa a qué localidad corresponde cada Cod. Sucursal. Sin divisiones, las unidades importadas quedan sin ubicación y el primer conteo (con *actualizar ubicación*) la fija.
 3. En **Authentication → Providers** deja habilitado *Email*. Crea tus usuarios en
    **Authentication → Users** (o desactiva el registro público si solo invitas).
    - **El primer usuario creado queda como `admin`**; los demás nacen como `consulta`.

@@ -101,6 +101,7 @@ export function normalizarTipo(v: unknown): "nueva" | "usada" | null {
 export function normalizarSegmento(v: unknown): string | null {
   const k = llave(v);
   if (!k) return null;
+  if (k.includes("fl360") || k.includes("fl 360")) return "fl360";
   if (k.includes("tracto")) return "tracto";
   if (k.includes("semirremolque") || k.includes("remolque") || k.includes("caja")) return "semirremolques";
   if (k.includes("seminuev")) return "seminuevos";
