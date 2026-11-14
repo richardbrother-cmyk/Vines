@@ -79,7 +79,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             <div className="grid grid-cols-3 gap-2 text-center">
               <Semaforo n={d.plan_piso.vencido} t="Vencido" c="bg-red-100 text-red-800" href={lista({ pp: "vencido" })} />
               <Semaforo n={d.plan_piso.d15} t="Vence ≤15 d" c="bg-orange-100 text-orange-900" href={lista({ pp: "15" })} />
-              <Semaforo n={d.plan_piso.d30} t="Vence 16–30 d" c="bg-amber-100 text-amber-900" href={lista({ pp: "30" })} />
+              <Semaforo n={d.plan_piso.d30} t="Vence 16–30 d" c="bg-amber-100 text-amber-900" href={lista({ pp: "16-30" })} />
             </div>
             <Alertas filas={(pps.data ?? []) as Alerta[]} plan />
           </section>

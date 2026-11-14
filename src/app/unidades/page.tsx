@@ -72,7 +72,7 @@ export default async function Unidades({ searchParams }: { searchParams: Promise
           </select>
           <select name="pp" defaultValue={f.pp ?? ""} className={sel}>
             <option value="">Plan piso: todos</option>
-            <option value="vencido">Vencido</option><option value="15">Vence en ≤15 d</option><option value="30">Vence en ≤30 d</option>
+            <option value="vencido">Vencido</option><option value="15">Vence en ≤15 d</option><option value="16-30">Vence en 16–30 d</option><option value="30">Vence en ≤30 d</option>
           </select>
           <button className="rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 py-2 font-semibold">Filtrar</button>
           <Link href="/unidades" className="rounded-lg bg-slate-100 dark:bg-slate-800 py-2 text-center text-sm leading-[2.25rem]">Limpiar</Link>

@@ -57,6 +57,15 @@ describe("procesarFinanciera", () => {
     expect(r.errores).toHaveLength(1);
     expect(r.validas[0]).toMatchObject({ financiera: "SANTANDER", fecha_vencimiento_plan_piso: "2026-12-01" });
   });
+  it("disposición explícita repetida es error de fila (no tumba el lote) y la automática usa la libre", () => {
+    const md = { ...m, disposicion: "Disp" };
+    const f = (n: number, d: unknown) => ({ __fila: n, VIN: "3ALACWFC0MDMA0001", Disp: d, Saldo: 1 });
+    const r = procesarFinanciera([f(2, 1), f(3, 1), f(4, null)], md, "SANTANDER");
+    expect(r.validas.map((v) => v.disposicion)).toEqual([1, 2]);
+    expect(r.errores.map((e) => e.fila)).toEqual([3]);
+    const claves = r.validas.map((v) => `${v.vin}|${v.disposicion}`);
+    expect(new Set(claves).size).toBe(claves.length);
+  });
   it("sin financiera fija ni columna: error", () => {
     expect(procesarFinanciera([{ __fila: 2, VIN: "3ALACWFC0MDMA0001" }], m).errores).toHaveLength(1);
   });
@@ -102,6 +111,12 @@ describe("formato real de SAP (Inventario_gdl)", () => {
     expect(r.validas[1]).toMatchObject({ segmento: "seminuevos", tipo: "usada" });
     expect(r.validas[2].segmento).toBe("fl360");
     expect(r.sinReconocer?.segmento).toBeUndefined();
+  });
+  it("fecha de reporte vacía o antigüedad absurda no revientan", () => {
+    const m = sugerirMapeo(enc, CAMPOS_SAP);
+    const r = procesarSAP([fila(2, "CARGA", "3ALHCYFE5TDWW4838", 10), fila(3, "CARGA", "3ALACWFC3VDXC3680", 99999999)], m, { fechaReporte: "" });
+    expect(r.validas[0].fecha_alta_inventario).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(r.validas[1].fecha_alta_inventario).toBeNull();
   });
   it("statusFijo fuerza facturada_en_cartera", () => {
     const m = sugerirMapeo(enc, CAMPOS_SAP);

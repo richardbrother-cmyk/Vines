@@ -5,6 +5,7 @@ import { CerrarConteo } from "@/components/CerrarConteo";
 import { ExportarReporte, type FilaReporte } from "@/components/ExportarReporte";
 import { miPerfil, traerTodo } from "@/lib/datos";
 import { ETIQUETA, type Resultado } from "@/lib/clasificar";
+import { fechaHora } from "@/lib/formato";
 import { crearClienteServidor } from "@/lib/supabase/server";
 
 interface Det {
@@ -28,9 +29,9 @@ export default async function Reporte({ params }: { params: Promise<{ id: string
   const detalle = await traerTodo<Det>((d, h) =>
     sb.from("v_conteo_detalle")
       .select("vin,modelo,anio,segmento,resultado,localidad_esperada,escaneado_en,observaciones")
-      .eq("conteo_id", id).order("escaneado_en").range(d, h));
+      .eq("conteo_id", id).order("escaneado_en").order("vin").range(d, h));
   const faltantes = cerrado
-    ? await traerTodo<Falt>((d, h) => sb.from("conteo_faltantes").select("vin,modelo,anio,segmento").eq("conteo_id", id).order("modelo").range(d, h))
+    ? await traerTodo<Falt>((d, h) => sb.from("conteo_faltantes").select("vin,modelo,anio,segmento").eq("conteo_id", id).order("modelo").order("vin").range(d, h))
     : await traerTodo<Falt>((d, h) => sb.rpc("conteo_faltantes_calc", { p_conteo: id }).range(d, h));
 
   const por = (r: Resultado) => detalle.filter((x) => x.resultado === r);
@@ -39,11 +40,14 @@ export default async function Reporte({ params }: { params: Promise<{ id: string
     localidad_esperada: x.localidad_esperada, escaneado_en: x.escaneado_en, observaciones: x.observaciones,
   });
   const esperadas = por("esperada");
-  const esperadasTotal = esperadas.length + faltantes.length;
-  const pct = esperadasTotal ? Math.round((1000 * esperadas.length) / esperadasTotal) / 10 : null;
+  // Cerrado: se muestran las cifras congeladas al cierre (las mismas que la lista y el dashboard).
+  const res = cerrado ? (c.resumen as { esperadas_total: number; pct_coincidencia: number | null } | null) : null;
+  const esperadasTotal = res?.esperadas_total ?? esperadas.length + faltantes.length;
+  const pct = res ? res.pct_coincidencia
+    : esperadasTotal ? Math.round((1000 * esperadas.length) / esperadasTotal) / 10 : null;
 
   const resumen: [string, string | number][] = [
-    ["Estado", cerrado ? `Cerrado ${c.cerrado_en?.slice(0, 16).replace("T", " ")}` : "Abierto (vista previa)"],
+    ["Estado", cerrado ? `Cerrado ${fechaHora(c.cerrado_en)}` : "Abierto (vista previa)"],
     ["Unidades esperadas", esperadasTotal], ["Encontradas", esperadas.length],
     ["Faltantes", faltantes.length], ["Sobrantes", por("sobrante").length],
     ["Encontradas en otra localidad", por("otra_localidad").length],

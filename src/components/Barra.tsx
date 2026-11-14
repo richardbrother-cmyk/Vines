@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { crearClienteServidor } from "@/lib/supabase/server";
+import { BotonSalir } from "./BotonSalir";
 
 async function salir() {
   "use server";
@@ -20,10 +21,10 @@ export function Barra({ nombre, rol }: { nombre?: string | null; rol?: string })
     <header className="border-b border-slate-200 dark:border-slate-700">
       <div className="flex items-center justify-between px-4 py-3">
         <Link href="/conteos" className="font-bold">Inventario físico</Link>
-        <form action={salir} className="flex items-center gap-3 text-sm text-slate-500">
+        <div className="flex items-center gap-3 text-sm text-slate-500">
           <span className="hidden sm:inline">{nombre} · {rol}</span>
-          <button className="underline">Salir</button>
-        </form>
+          <BotonSalir salir={salir} />
+        </div>
       </div>
       <nav className="flex gap-1 px-3 pb-2 text-sm overflow-x-auto">
         {enlaces.map((e) => (

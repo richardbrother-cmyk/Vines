@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { crearClienteNavegador } from "@/lib/supabase/client";
 import { leerExcel, type HojaLeida } from "@/lib/excel";
 import {
-  CAMPOS_FIN, CAMPOS_SAP, FINANCIERAS, procesarFinanciera, procesarSAP, sugerirMapeo, type Mapeo,
+  CAMPOS_FIN, CAMPOS_SAP, FINANCIERAS, hoyLocal, procesarFinanciera, procesarSAP, sugerirMapeo, type Mapeo,
 } from "@/lib/importar";
 
 type Tipo = "sap" | "financiera";
@@ -18,7 +18,7 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
   const [tipo, setTipo] = useState<Tipo>("sap");
   const [financiera, setFinanciera] = useState<string>("");
   const [statusFijo, setStatusFijo] = useState<"" | "en_inventario" | "facturada_en_cartera" | "vendida">("");
-  const [fechaReporte, setFechaReporte] = useState(new Date().toISOString().slice(0, 10));
+  const [fechaReporte, setFechaReporte] = useState(hoyLocal());
   const [nombre, setNombre] = useState("");
   const [lectura, setLectura] = useState<HojaLeida | null>(null);
   const [mapeo, setMapeo] = useState<Mapeo>({});
@@ -73,7 +73,9 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
   const divisionesAlcance = alcance === "divisiones" && divisionesArchivo.length > 0 ? divisionesArchivo : null;
 
   useEffect(() => {
-    if (!esFoto || vinsArchivo.length === 0) { setAusentes(null); setErrAus(null); return; }
+    // Al cambiar archivo, mapeo o alcance, la lista anterior deja de valer: se oculta hasta recalcular.
+    setAusentes(null); setErrAus(null); setConfirmarAus(false);
+    if (!esFoto || vinsArchivo.length === 0) return;
     let vivo = true;
     const t = setTimeout(async () => {
       const { data, error } = await crearClienteNavegador().rpc("unidades_ausentes", { p_vins: vinsArchivo, p_divisiones: divisionesAlcance });
@@ -84,12 +86,17 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
   }, [esFoto, vinsArchivo, divisionesAlcance, recarga]);
 
   async function aplicarAusentes() {
-    if (!accion) return;
+    if (!accion || !ausentes) return;
     setConfirmarAus(false);
+    // p_esperadas: el servidor aborta si la cantidad ya no es la que se mostró en pantalla.
     const { data, error } = await crearClienteNavegador().rpc("marcar_ausentes", {
-      p_vins: vinsArchivo, p_status: accion, p_divisiones: divisionesAlcance,
+      p_vins: vinsArchivo, p_status: accion, p_divisiones: divisionesAlcance, p_esperadas: ausentes.ausentes_total,
     });
-    if (error) { setErrAus(error.message); return; }
+    if (error) {
+      setErrAus(error.message.includes("cantidad_distinta") ? "La lista cambió mientras confirmabas; se volvió a calcular. Revísala y aplica de nuevo." : error.message);
+      setRecarga((n) => n + 1);
+      return;
+    }
     setMsgAus(`${data} unidades marcadas como ${accion === "vendida" ? "vendidas / con salida" : "facturadas en cartera"}.`);
     setAccion("");
     setRecarga((n) => n + 1);

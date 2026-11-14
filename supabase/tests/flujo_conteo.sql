@@ -6,6 +6,16 @@ insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a1', 'admin@x.com'),
   ('00000000-0000-0000-0000-0000000000a2', 'auditor@x.com'),
   ('00000000-0000-0000-0000-0000000000a3', 'otro@x.com');
+-- los usuarios nuevos (salvo el primero del proyecto) nacen inactivos y no ven nada
+do $$ begin assert not (select activo from perfiles where id = '00000000-0000-0000-0000-0000000000a3'), 'nuevo usuario inactivo'; end $$;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000a3', true);
+do $$ declare n int; begin
+  select count(*) into n from unidades; assert n = 0, 'inactivo no ve unidades';
+  select count(*) into n from localidades; assert n >= 0, 'catálogo';
+end $$;
+reset role;
+update perfiles set activo = true where id::text like '00000000-0000-0000-0000-0000000000a%';
 update perfiles set rol = 'auditor' where id = '00000000-0000-0000-0000-0000000000a2';
 insert into localidades (id, nombre) values
   ('10000000-0000-0000-0000-000000000001', 'Patio A'),

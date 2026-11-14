@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
-import { guardarCatalogo, guardarItem, itemsDeConteo, leerCatalogo, pendientesDeConteo, borrarItem, type ItemCola } from "./offline";
+import { actualizarItem, guardarCatalogo, guardarItem, itemsDeConteo, leerCatalogo, obtenerItem, pendientesDeConteo, borrarItem, type ItemCola } from "./offline";
 
 const item = (n: number, o: Partial<ItemCola> = {}): ItemCola => ({
   client_id: `c${n}`, conteo_id: "K1", vin: `3ALACWFC0MDMA000${n}`, escaneado_en: new Date().toISOString(),
@@ -17,6 +17,19 @@ describe("cola offline", () => {
     expect(await pendientesDeConteo("K1")).toBe(3); // c1, c2 pendientes + c4 con foto por subir
     await borrarItem("c1");
     expect(await pendientesDeConteo("K1")).toBe(2);
+  });
+
+  it("los items con error cuentan como sin sincronizar (bloquean el cierre)", async () => {
+    await guardarItem(item(7, { conteo_id: "K7", estado: "error" }));
+    expect(await pendientesDeConteo("K7")).toBe(1);
+  });
+
+  it("actualizarItem fusiona sobre el estado actual (no pisa una nota agregada durante la sincronización)", async () => {
+    await guardarItem(item(8, { conteo_id: "K8" }));
+    await actualizarItem("c8", (a) => ({ ...a, observaciones: "rayón", meta_sucia: true })); // el usuario anota
+    await actualizarItem("c8", (a) => ({ ...a, estado: "enviado" }));                         // llega la respuesta del servidor
+    expect(await obtenerItem("c8")).toMatchObject({ estado: "enviado", observaciones: "rayón", meta_sucia: true });
+    expect(await actualizarItem("no-existe", (a) => a)).toBeNull();
   });
 
   it("el catálogo se reemplaza por completo", async () => {

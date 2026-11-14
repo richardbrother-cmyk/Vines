@@ -4,6 +4,7 @@ begin;
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000b1', 'admin2@x.com'),
   ('00000000-0000-0000-0000-0000000000b2', 'aud2@x.com');
+update perfiles set activo = true where id::text like '00000000-0000-0000-0000-0000000000b%';
 update perfiles set rol = 'admin'   where id = '00000000-0000-0000-0000-0000000000b1';
 update perfiles set rol = 'auditor' where id = '00000000-0000-0000-0000-0000000000b2';
 insert into localidades (id, nombre, divisiones) values
@@ -17,7 +18,7 @@ do $$ begin
   exception when others then assert sqlerrm = 'sin_permiso', sqlerrm; end;
   begin perform unidades_ausentes('[]'); raise exception 'debio fallar';
   exception when others then assert sqlerrm = 'sin_permiso', sqlerrm; end;
-  begin perform marcar_ausentes('[]', 'vendida'); raise exception 'debio fallar';
+  begin perform marcar_ausentes('[]', 'vendida', null, 0); raise exception 'debio fallar';
   exception when others then assert sqlerrm = 'sin_permiso', sqlerrm; end;
 end $$;
 
@@ -64,6 +65,10 @@ do $$ declare s text; v date; o text; begin
   insert into seguros (vin, fecha_alta_seguro, fecha_vencimiento, origen) values ('3ALACWFC0MDMZ0001', current_date - 300, current_date + 10, 'manual');
   select seguro_semaforo, seguro_origen::text into s, o from v_unidades_full where vin = '3ALACWFC0MDMZ0001';
   assert s = 'por_vencer' and o = 'manual', 'manual gana: ' || s;
+  insert into seguros (vin, fecha_vencimiento, origen, created_at) values ('3ALACWFC0MDMZ0001', current_date + 400, 'manual', now() + interval '1 second');
+  select seguro_semaforo into s from v_unidades_full where vin = '3ALACWFC0MDMZ0001';
+  assert s = 'vigente', 'el acuse más reciente gana aunque no tenga fecha de alta: ' || s;
+  delete from seguros where vin = '3ALACWFC0MDMZ0001' and fecha_vencimiento = current_date + 400;
 end $$;
 
 -- dashboard
@@ -88,9 +93,13 @@ do $$ declare r jsonb; n int; begin
   assert (r->>'en_alcance')::int = 3 and (r->>'ausentes_total')::int = 2, 'ausentes: ' || r::text;
   -- sin alcance de división: también entra Z0005 (Z0002 es facturada, no cuenta)
   assert (unidades_ausentes('["3ALACWFC0MDMZ0003"]', null)->>'ausentes_total')::int >= 3, 'sin alcance';
-  begin perform marcar_ausentes('["3ALACWFC0MDMZ0003"]', 'en_inventario', array['9001']); raise exception 'debio fallar';
+  begin perform marcar_ausentes('["3ALACWFC0MDMZ0003"]', 'en_inventario', array['9001'], 2); raise exception 'debio fallar';
   exception when others then assert sqlerrm = 'status_no_permitido', sqlerrm; end;
-  n := marcar_ausentes('["3ALACWFC0MDMZ0003"]', 'vendida', array['9001']);
+  begin perform marcar_ausentes('[]', 'vendida', null, 0); raise exception 'debio fallar';
+  exception when others then assert sqlerrm = 'archivo_vacio', sqlerrm; end;
+  begin perform marcar_ausentes('["3ALACWFC0MDMZ0003"]', 'vendida', array['9001'], 99); raise exception 'debio fallar';
+  exception when others then assert sqlerrm like 'cantidad_distinta%', sqlerrm; end;
+  n := marcar_ausentes('["3ALACWFC0MDMZ0003"]', 'vendida', array['9001'], 2);
   assert n = 2, 'marcadas ' || n;
   assert (select status::text from unidades where vin = '3ALACWFC0MDMZ0004') = 'vendida', 'Z0004 vendida';
   assert (select status::text from unidades where vin = '3ALACWFC0MDMZ0005') = 'en_inventario', 'Z0005 intacta';

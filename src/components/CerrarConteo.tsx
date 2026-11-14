@@ -20,7 +20,7 @@ export function CerrarConteo({ conteoId, faltantes }: { conteoId: string; faltan
       if ((await pendientesDeConteo(conteoId)) > 0) {
         await sincronizar(conteoId);
         if ((await pendientesDeConteo(conteoId)) > 0) {
-          setError("Hay escaneos pendientes de sincronizar. Conéctate a internet y vuelve a intentar.");
+          setError("Hay escaneos de este teléfono sin sincronizar o con error (⚠️). Conéctate a internet, o quita los que tengan error en la pantalla de conteo, y vuelve a intentar.");
           return;
         }
       }

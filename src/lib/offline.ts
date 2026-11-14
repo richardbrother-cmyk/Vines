@@ -13,6 +13,7 @@ export interface ItemCola {
   observaciones?: string;
   foto?: Blob;                     // pendiente de subir
   foto_path?: string;
+  foto_nombre?: string;            // nombre único del archivo pendiente (permite reemplazar la foto)
   estado: "pendiente" | "enviado" | "error";
   meta_sucia: boolean;             // hay foto/observaciones por enviar tras el insert
   error?: string;
@@ -79,7 +80,38 @@ export async function borrarItem(clientId: string) {
   await (await db()).delete("cola", clientId);
 }
 
+/** Lee-modifica-escribe en UNA transacción: evita pisar cambios hechos mientras había una petición de red en vuelo. */
+export async function actualizarItem(clientId: string, cambio: (actual: ItemCola) => ItemCola | null): Promise<ItemCola | null> {
+  const tx = (await db()).transaction("cola", "readwrite");
+  const actual = await tx.store.get(clientId);
+  const nuevo = actual ? cambio(actual) : null;
+  if (nuevo) await tx.store.put(nuevo);
+  await tx.done;
+  return nuevo;
+}
+
+export const NOMBRE_CACHE = "inventario-v2"; // debe coincidir con public/sw.js
+
+/** Sin sincronizar = pendientes, con foto/nota por subir, o con error (un error no es "ya quedó"). */
+export const sinSincronizar = (i: ItemCola) => i.estado !== "enviado" || i.meta_sucia;
+
 export async function pendientesDeConteo(conteoId: string): Promise<number> {
-  const items = await itemsDeConteo(conteoId);
-  return items.filter((i) => i.estado === "pendiente" || i.meta_sucia).length;
+  return (await itemsDeConteo(conteoId)).filter(sinSincronizar).length;
+}
+
+export async function pendientesTotales(): Promise<number> {
+  return (await (await db()).getAll("cola")).filter(sinSincronizar).length;
+}
+
+/** Al cerrar sesión: borra catálogo, cola y páginas guardadas para que no las vea el siguiente usuario. */
+export async function borrarDatosLocales() {
+  try {
+    const d = await db();
+    const tx = d.transaction(["catalogo", "meta", "cola"], "readwrite");
+    await Promise.all([tx.objectStore("catalogo").clear(), tx.objectStore("meta").clear(), tx.objectStore("cola").clear()]);
+    await tx.done;
+  } catch { /* sin IndexedDB */ }
+  try {
+    if (typeof caches !== "undefined") await Promise.all((await caches.keys()).map((k) => caches.delete(k)));
+  } catch { /* sin Cache API */ }
 }

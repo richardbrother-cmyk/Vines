@@ -1,12 +1,13 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CamaraScanner } from "./CamaraScanner";
 import { useConteo, type ConteoInfo, type RespuestaRegistro } from "@/lib/useConteo";
 import { ETIQUETA, type Clasificacion, type EntradaCatalogo } from "@/lib/clasificar";
 import { avisar } from "@/lib/feedback";
 import { reducirImagen } from "@/lib/imagen";
 import { errorVin, normalizarVin } from "@/lib/vin";
+import { NOMBRE_CACHE } from "@/lib/offline";
 
 const COLOR: Record<Clasificacion, string> = {
   esperada: "bg-emerald-600 text-white",
@@ -34,6 +35,14 @@ export function PantallaConteo({ conteo }: { conteo: ConteoInfo }) {
   const [filtro, setFiltro] = useState<Filtro>("todas");
   const antiRebote = useRef({ vin: "", t: 0 });
   const cerrado = c.cerrado;
+
+  // Con red: deja guardadas esta pantalla y el lector de códigos para poder reanudar o abrir la
+  // cámara sin señal (p. ej. si el teléfono recarga la pestaña al tomar una foto).
+  useEffect(() => {
+    if (!navigator.onLine || process.env.NODE_ENV !== "production") return;
+    void import("html5-qrcode").catch(() => {});
+    if ("caches" in window) void caches.open(NOMBRE_CACHE).then((k) => k.add(location.pathname)).catch(() => {});
+  }, []);
 
   const procesar = useCallback(
     async (crudo: string, metodo: "camara" | "manual") => {
@@ -110,18 +119,25 @@ export function PantallaConteo({ conteo }: { conteo: ConteoInfo }) {
         <Contador n={c.stats.sobrante + c.stats.otra_localidad + c.stats.facturada_en_patio + c.stats.vendida_en_patio} t="Otras" />
       </section>
 
+      {c.sinSesion && (
+        <p className="mx-4 mb-3 rounded-lg bg-red-50 text-red-800 text-sm p-3">
+          Tu sesión venció y los escaneos no se están sincronizando (siguen guardados en el teléfono).{" "}
+          <a href="/login" className="underline font-medium">Vuelve a entrar</a> y regresa a este conteo.
+        </p>
+      )}
       {c.stats.conError > 0 && (
         <p className="mx-4 mb-3 rounded-lg bg-red-50 text-red-800 text-sm p-3">
-          {c.stats.conError} escaneo(s) no se pudieron registrar (revisa permisos de la localidad).
+          {c.stats.conError} escaneo(s) con ⚠️ no se han podido registrar (se reintentan solos). Si es un permiso de la
+          localidad, pide que te la asignen; si no, quítalos de la lista. No se puede cerrar el conteo mientras existan.
         </p>
       )}
 
       {cerrado ? (
         <div className="mx-4 rounded-xl bg-slate-100 dark:bg-slate-800 p-4 text-center">
           <p className="mb-2">Esta sesión ya fue cerrada.</p>
-          {c.stats.pendientes > 0 && (
+          {c.stats.sinSincronizar > 0 && (
             <p className="mb-2 text-red-700 text-sm">
-              {c.stats.pendientes} escaneo(s) de este teléfono no alcanzaron a sincronizarse antes del cierre y NO quedaron en el conteo. Avisa al responsable: se corrigen con una nueva sesión.
+              {c.stats.sinSincronizar} escaneo(s) de este teléfono no alcanzaron a sincronizarse antes del cierre y NO quedaron en el conteo. Avisa al responsable: se corrigen con una nueva sesión.
             </p>
           )}
           <Link className="underline font-medium" href={`/conteos/${conteo.id}/reporte`}>Ver reporte de diferencias</Link>
@@ -230,7 +246,10 @@ export function PantallaConteo({ conteo }: { conteo: ConteoInfo }) {
                   {i.observaciones ? ` · “${i.observaciones}”` : ""}{(i.foto || i.foto_path) ? " · 📷" : ""}
                 </p>
               </div>
-              <span className="text-xs text-slate-400">{i.estado === "pendiente" ? "⏳" : i.estado === "error" ? "⚠️" : "✓"}</span>
+              {i.estado === "error" && !cerrado && (
+                <button className="text-xs underline text-red-700" onClick={async () => { const e = await c.quitar(i.client_id); if (e) setMsgError(e); }}>Quitar</button>
+              )}
+              <span className="text-xs text-slate-400" title={i.error}>{i.estado === "pendiente" ? "⏳" : i.estado === "error" || i.error ? "⚠️" : "✓"}</span>
             </li>
           ))}
           {lista.length === 0 && <li className="py-6 text-center text-slate-500 text-sm">Aún no hay escaneos.</li>}

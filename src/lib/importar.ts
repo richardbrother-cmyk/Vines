@@ -145,6 +145,9 @@ export interface OpcionesSAP {
   fechaReporte?: string;
 }
 
+/** Fecha de hoy en Guadalajara (YYYY-MM-DD), sin importar la zona del servidor o del navegador. */
+export const hoyLocal = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
+
 function restarDias(fecha: string, dias: number): string {
   return new Date(Date.parse(fecha + "T00:00:00Z") - dias * 86400000).toISOString().slice(0, 10);
 }
@@ -153,7 +156,7 @@ type Fila = Record<string, unknown>;
 const get = (f: Fila, m: Mapeo, c: string) => (m[c] ? f[m[c]] : undefined);
 
 export function procesarSAP(filas: Fila[], m: Mapeo, opc: OpcionesSAP = {}): Procesado<Record<string, unknown>> {
-  const base = opc.fechaReporte ?? new Date().toISOString().slice(0, 10);
+  const base = parsearFecha(opc.fechaReporte) ?? hoyLocal();
   const sinReconocer: Record<string, Record<string, number>> = {};
   const anotar = (campo: string, crudo: unknown) => {
     const t = texto(crudo);
@@ -185,7 +188,7 @@ export function procesarSAP(filas: Fila[], m: Mapeo, opc: OpcionesSAP = {}): Pro
       division_sap: texto(get(f, m, "division_sap")),
       costo: parsearNumero(get(f, m, "costo")),
       // Fecha de alta explícita; si no, se deriva de la antigüedad (días) respecto a la fecha del reporte.
-      fecha_alta_inventario: parsearFecha(get(f, m, "fecha_alta_inventario")) ?? (dias != null && dias >= 0 ? restarDias(base, Math.round(dias)) : null),
+      fecha_alta_inventario: parsearFecha(get(f, m, "fecha_alta_inventario")) ?? (dias != null && dias >= 0 && dias <= 20000 ? restarDias(base, Math.round(dias)) : null),
       // Sin columna de status, estar en el archivo de inventario significa "en inventario"
       // (así una unidad marcada por error como vendida/facturada vuelve al reaparecer en SAP).
       status: opc.statusFijo ?? statusCol ?? (m.status ? null : "en_inventario"),
@@ -199,7 +202,7 @@ export function procesarSAP(filas: Fila[], m: Mapeo, opc: OpcionesSAP = {}): Pro
 export function procesarFinanciera(filas: Fila[], m: Mapeo, financieraFija?: string): Procesado<Record<string, unknown>> {
   const validas: Record<string, unknown>[] = [];
   const errores: ErrorFila[] = [];
-  const contador = new Map<string, number>();
+  const usadas = new Map<string, Set<number>>(); // disposiciones ya ocupadas por VIN en este archivo
   let vinsCorregidos = 0;
   for (const f of filas) {
     const n = Number(f.__fila ?? 0);
@@ -209,13 +212,18 @@ export function procesarFinanciera(filas: Fila[], m: Mapeo, financieraFija?: str
     if (vin !== crudo.trim()) vinsCorregidos++;
     const financiera = financieraFija || normalizarFinanciera(get(f, m, "financiera"));
     if (!financiera) { errores.push({ fila: n, vin, error: "Financiera no reconocida" }); continue; }
+    const ocupadas = usadas.get(vin) ?? new Set<number>();
+    usadas.set(vin, ocupadas);
     let disp = parsearNumero(get(f, m, "disposicion"));
-    if (disp !== 1 && disp !== 2) {
-      // Sin número de disposición en el archivo: 1.ª fila del VIN = 1 (chasis), 2.ª = 2 (carrocería).
-      disp = (contador.get(vin) ?? 0) + 1;
-      contador.set(vin, disp);
+    if (disp === 1 || disp === 2) {
+      // Un (VIN, disposición) repetido tumbaría el lote completo en la base: se rechaza la fila.
+      if (ocupadas.has(disp)) { errores.push({ fila: n, vin, error: `Disposición ${disp} repetida para el mismo VIN` }); continue; }
+    } else {
+      // Sin número en el archivo: la primera libre (1 = chasis, 2 = carrocería).
+      disp = !ocupadas.has(1) ? 1 : !ocupadas.has(2) ? 2 : 3;
+      if (disp > 2) { errores.push({ fila: n, vin, error: "Más de 2 disposiciones para el mismo VIN" }); continue; }
     }
-    if (disp > 2) { errores.push({ fila: n, vin, error: "Más de 2 disposiciones para el mismo VIN" }); continue; }
+    ocupadas.add(disp);
     validas.push({
       vin, financiera, disposicion: disp, concepto: texto(get(f, m, "concepto")),
       saldo: parsearNumero(get(f, m, "saldo")),

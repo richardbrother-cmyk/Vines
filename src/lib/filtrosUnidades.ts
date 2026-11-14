@@ -37,7 +37,10 @@ export function aplicarFiltros<B>(qb: B, f: Filtros): B {
   if (f.seguro) q = q.eq("seguro_semaforo", f.seguro);
   if (f.pp === "vencido") q = q.lt("dias_plan_piso", 0);
   else if (f.pp === "15") q = q.gte("dias_plan_piso", 0).lte("dias_plan_piso", 15);
+  else if (f.pp === "16-30") q = q.gte("dias_plan_piso", 16).lte("dias_plan_piso", 30);
   else if (f.pp === "30") q = q.gte("dias_plan_piso", 0).lte("dias_plan_piso", 30);
-  q = f.seguro ? q.order("dias_seguro", { ascending: true }) : f.pp ? q.order("dias_plan_piso", { ascending: true }) : q.order("vin");
+  if (f.seguro) q = q.order("dias_seguro", { ascending: true });
+  else if (f.pp) q = q.order("dias_plan_piso", { ascending: true });
+  q = q.order("vin"); // desempate único: sin él, la paginación puede repetir u omitir filas
   return q as B;
 }

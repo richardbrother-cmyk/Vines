@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { crearClienteNavegador } from "./supabase/client";
 import {
-  borrarItem, guardarCatalogo, guardarItem, itemsDeConteo, leerCatalogo, obtenerItem,
-  type ItemCola,
+  actualizarItem, borrarItem, guardarCatalogo, guardarItem, itemsDeConteo, leerCatalogo, obtenerItem,
+  sinSincronizar, type ItemCola,
 } from "./offline";
 import { buscarPorSufijo, clasificar, type Clasificacion, type EntradaCatalogo } from "./clasificar";
 import { errorVin, normalizarVin } from "./vin";
@@ -27,6 +27,7 @@ export function useConteo(conteo: ConteoInfo) {
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [enLinea, setEnLinea] = useState(true);
   const [sincronizando, setSincronizando] = useState(false);
+  const [sinSesion, setSinSesion] = useState(false);
   const [cerradoRemoto, setCerradoRemoto] = useState(conteo.status === "cerrado");
   const itemsRef = useRef<ItemCola[]>([]);
   itemsRef.current = items;
@@ -42,6 +43,7 @@ export function useConteo(conteo: ConteoInfo) {
       const r = await sincronizar(conteo.id);
       if (r.cerrado) setCerradoRemoto(true);
       setEnLinea(!r.sinRed);
+      setSinSesion(r.sinSesion);
     } finally {
       setSincronizando(false);
       await recargarItems();
@@ -110,7 +112,7 @@ export function useConteo(conteo: ConteoInfo) {
     window.addEventListener("online", alVolver);
     window.addEventListener("offline", alPerder);
     const tick = setInterval(() => {
-      if (navigator.onLine && itemsRef.current.some((i) => i.estado === "pendiente" || i.meta_sucia)) void sincronizarYa();
+      if (navigator.onLine && itemsRef.current.some(sinSincronizar)) void sincronizarYa();
     }, 20000);
     return () => {
       window.removeEventListener("online", alVolver);
@@ -134,6 +136,7 @@ export function useConteo(conteo: ConteoInfo) {
         escaneado_en: new Date().toISOString(), resultado: clasificacion,
         estado: "pendiente", meta_sucia: false, ordinal: Date.now(),
       };
+      itemsRef.current = [...itemsRef.current, item]; // de inmediato: un doble toque no duplica
       await guardarItem(item);
       setItems((prev) => [...prev, item]);
       programarSync();
@@ -146,10 +149,13 @@ export function useConteo(conteo: ConteoInfo) {
     async (clientId: string): Promise<string | null> => {
       const it = await obtenerItem(clientId);
       if (!it) return null;
-      if (it.estado === "enviado") {
-        if (!navigator.onLine) return "Sin red: no se puede quitar un escaneo ya sincronizado";
+      // Con red siempre se avisa al servidor (es idempotente): un "pendiente" pudo haberse insertado
+      // aunque la respuesta se perdiera. Sin red solo se pueden quitar los que nunca se enviaron.
+      if (navigator.onLine) {
         const { error } = await crearClienteNavegador().rpc("quitar_scan", { p_conteo: conteo.id, p_client_id: clientId });
-        if (error) return error.message;
+        if (error && it.estado === "enviado") return error.message.includes("conteo_cerrado") ? "La sesión ya está cerrada" : error.message;
+      } else if (it.estado === "enviado") {
+        return "Sin red: no se puede quitar un escaneo ya sincronizado";
       }
       await borrarItem(clientId);
       await recargarItems();
@@ -160,9 +166,11 @@ export function useConteo(conteo: ConteoInfo) {
 
   const anotar = useCallback(
     async (clientId: string, cambios: { observaciones?: string; foto?: Blob }) => {
-      const it = await obtenerItem(clientId);
-      if (!it) return;
-      await guardarItem({ ...it, ...cambios, meta_sucia: true });
+      await actualizarItem(clientId, (a) => ({
+        ...a, ...cambios, meta_sucia: true, error: undefined,
+        // Foto nueva: nombre único para poder reemplazar una anterior (el bucket no sobrescribe).
+        ...(cambios.foto ? { foto_path: undefined, foto_nombre: `${a.client_id}-${Date.now()}.jpg` } : {}),
+      }));
       await recargarItems();
       programarSync();
     },
@@ -184,13 +192,14 @@ export function useConteo(conteo: ConteoInfo) {
       esperadasTotal,
       faltan: Math.max(0, esperadasTotal - por.esperada),
       pendientes: items.filter((i) => i.estado === "pendiente" || i.meta_sucia).length,
+      sinSincronizar: items.filter(sinSincronizar).length,
       conError: items.filter((i) => i.estado === "error").length,
     };
   }, [items, catalogo, conteo.localidad_id]);
 
   return {
     catalogo, items, cargando, errorCarga, enLinea, sincronizando, stats,
-    cerrado: cerradoRemoto,
+    cerrado: cerradoRemoto, sinSesion,
     registrar, quitar, anotar, sugerencias, sincronizar: sincronizarYa,
   };
 }

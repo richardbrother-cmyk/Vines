@@ -14,11 +14,12 @@ escaneando VINs en el patio, con validación en vivo, cola offline y reporte de 
    (o usa `supabase db push` con la CLI). `seed.sql` crea las 4 localidades (Patio Vallarta, Zapopan, Guadalajara, Laredo) **sin divisiones**: asígnalas con `update localidades set divisiones = '{6056}' where nombre = 'Laredo';` cuando se sepa a qué localidad corresponde cada Cod. Sucursal. Sin divisiones, las unidades importadas quedan sin ubicación y el primer conteo (con *actualizar ubicación*) la fija.
 3. En **Authentication → Providers** deja habilitado *Email*. Crea tus usuarios en
    **Authentication → Users** (o desactiva el registro público si solo invitas).
-   - **El primer usuario creado queda como `admin`**; los demás nacen como `consulta`.
-4. Asigna roles y localidades en el SQL Editor:
+   - **El primer usuario creado queda como `admin`**. Los demás nacen **inactivos** (no ven nada) hasta que los actives.
+   - **Desactiva el registro público** (Authentication → Sign In / Providers → *Allow new users to sign up*) y crea tu usuario antes que nadie: quien se registre primero en un proyecto vacío sería el admin.
+4. Activa usuarios y asigna roles y localidades en el SQL Editor:
 
 ```sql
-update perfiles set rol = 'auditor' where id = (select id from auth.users where email = 'auditor@empresa.com');
+update perfiles set activo = true, rol = 'auditor' where id = (select id from auth.users where email = 'auditor@empresa.com');
 insert into usuario_localidades (usuario_id, localidad_id)
   select u.id, l.id from auth.users u, localidades l
   where u.email = 'auditor@empresa.com' and l.nombre = 'Guadalajara Matriz';
@@ -136,5 +137,6 @@ psql "$DB_URL" -f supabase/tests/fase2.sql          # importadores, regla de seg
 
 - `costo` vive en `unidades_costos` (no en `unidades`) para ocultarlo al auditor con RLS pura.
 - `vendida_en_patio` es un resultado extra (unidad dada de salida pero encontrada).
-- Service worker mínimo: abre la app y reanuda un conteo **ya visitado** sin red; la primera carga de una sesión requiere conexión.
+- Service worker mínimo: solo guarda la pantalla de conteo (nunca dashboard, fichas ni cargas, que traen costos) para reanudar un conteo **ya abierto con red**; la primera carga de una sesión requiere conexión. Al pulsar *Salir* se borran del dispositivo el catálogo, la cola y esas páginas (avisa si hay escaneos sin sincronizar).
+- Fechas y semáforos se calculan en hora de Guadalajara (`America/Mexico_City`), no en UTC.
 - Íconos PWA: solo SVG; para iOS conviene agregar PNG 180×180/512×512 (`apple-touch-icon`).
