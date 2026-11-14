@@ -25,6 +25,7 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
   const [error, setError] = useState<string | null>(null);
   const [progreso, setProgreso] = useState<string | null>(null);
   const [resultado, setResultado] = useState<string | null>(null);
+  const [errImport, setErrImport] = useState<string | null>(null);
   const buffer = useRef<ArrayBuffer | null>(null);
   // Unidades que siguen "en inventario" en la base pero ya no vienen en el archivo SAP
   const [alcance, setAlcance] = useState<"divisiones" | "todo">("divisiones");
@@ -106,31 +107,42 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
 
   async function importar() {
     if (!proc || !lectura) return;
-    setError(null); setResultado(null);
+    setError(null); setResultado(null); setErrImport(null);
     const sb = crearClienteNavegador();
     const fn = tipo === "sap" ? "importar_unidades" : "importar_financiamientos";
     let ins = 0, upd = 0;
     const omitidas: string[] = [];
     let fallo: string | null = null;
-    for (let i = 0; i < proc.validas.length; i += LOTE) {
-      setProgreso(`Importando ${Math.min(i + LOTE, proc.validas.length)} de ${proc.validas.length}…`);
-      const { data, error } = await sb.rpc(fn, { p_filas: proc.validas.slice(i, i + LOTE) });
-      if (error) { fallo = error.message; break; }
-      const r = data as { insertadas: number; actualizadas: number; omitidas_sin_unidad?: string[] };
-      ins += r.insertadas; upd += r.actualizadas; omitidas.push(...(r.omitidas_sin_unidad ?? []));
+    try {
+      for (let i = 0; i < proc.validas.length; i += LOTE) {
+        setProgreso(`Importando ${Math.min(i + LOTE, proc.validas.length)} de ${proc.validas.length}…`);
+        const { data, error } = await sb.rpc(fn, { p_filas: proc.validas.slice(i, i + LOTE) });
+        if (error) { fallo = [error.message, error.details, error.hint, error.code].filter(Boolean).join(" · "); break; }
+        const r = (data ?? {}) as { insertadas?: number; actualizadas?: number; omitidas_sin_unidad?: string[] };
+        if (typeof r.insertadas !== "number") { fallo = "El servidor no devolvió el resultado esperado"; break; }
+        ins += r.insertadas; upd += r.actualizadas ?? 0; omitidas.push(...(r.omitidas_sin_unidad ?? []));
+      }
+      const errores = [
+        ...proc.errores,
+        ...omitidas.map((vin) => ({ fila: 0, vin, error: "VIN no existe en inventario (cárgalo primero desde SAP)" })),
+        ...(fallo ? [{ fila: 0, vin: "", error: `Carga interrumpida: ${fallo}` }] : []),
+      ].slice(0, 500);
+      const { error: eBit } = await sb.from("cargas").insert({
+        tipo, archivo: nombre, filas_total: lectura.filas.length, insertadas: ins, actualizadas: upd, errores,
+      });
+      if (!fallo) await sb.from("mapeos_columnas").upsert({ tipo, mapeo, actualizado_en: new Date().toISOString() });
+      const resumen = `${ins} nuevas, ${upd} actualizadas, ${proc.errores.length} filas con error${omitidas.length ? `, ${omitidas.length} VIN no existen en inventario` : ""}`;
+      if (fallo) {
+        setErrImport(`La carga se interrumpió: ${fallo}. Hasta ese punto: ${resumen}. Reintentar es seguro (no duplica).`);
+      } else {
+        setResultado(`Listo: ${resumen}.${eBit ? ` (No se pudo escribir la bitácora: ${eBit.message})` : ""}`);
+        setRecarga((n) => n + 1);
+      }
+    } catch (e) {
+      setErrImport(`Error inesperado al importar: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setProgreso(null);
     }
-    const errores = [
-      ...proc.errores,
-      ...omitidas.map((vin) => ({ fila: 0, vin, error: "VIN no existe en inventario (cárgalo primero desde SAP)" })),
-      ...(fallo ? [{ fila: 0, vin: "", error: `Carga interrumpida: ${fallo}` }] : []),
-    ].slice(0, 500);
-    await sb.from("cargas").insert({
-      tipo, archivo: nombre, filas_total: lectura.filas.length, insertadas: ins, actualizadas: upd, errores,
-    });
-    if (!fallo) await sb.from("mapeos_columnas").upsert({ tipo, mapeo, actualizado_en: new Date().toISOString() });
-    setProgreso(null);
-    if (fallo) setError(`Se interrumpió: ${fallo}. Lo ya importado quedó guardado (reintentar es seguro).`);
-    setResultado(`Listo: ${ins} nuevas, ${upd} actualizadas, ${proc.errores.length} filas con error${omitidas.length ? `, ${omitidas.length} VIN no existen en inventario` : ""}.`);
   }
 
   const sel = "w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-2 py-2 text-sm";
@@ -286,9 +298,12 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
             className="w-full rounded-xl bg-emerald-600 text-white py-3 font-semibold disabled:opacity-40">
             {progreso ?? `Importar ${proc?.validas.length ?? 0} filas`}
           </button>
+          {!mapeo.vin && <p className="text-xs text-amber-700">Falta mapear la columna del VIN (es la única obligatoria).</p>}
+          {proc && proc.validas.length === 0 && <p className="text-xs text-amber-700">No hay filas válidas para importar; revisa el mapeo del VIN.</p>}
           {tipo === "financiera" && !financiera && !mapeo.financiera && <p className="text-xs text-amber-700">Elige la financiera o mapea una columna que la contenga.</p>}
         </>
       )}
+      {errImport && <p role="alert" className="rounded-lg bg-red-50 text-red-800 text-sm p-3 break-words">{errImport}</p>}
       {resultado && <p className="rounded-lg bg-emerald-50 text-emerald-900 text-sm p-3">{resultado}</p>}
     </div>
   );
