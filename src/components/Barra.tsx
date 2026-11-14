@@ -15,7 +15,7 @@ export function Barra({ nombre, rol }: { nombre?: string | null; rol?: string })
     { href: "/conteos", t: "Conteos" },
     { href: "/unidades", t: "Unidades" },
     { href: "/dashboard", t: "Dashboard" },
-    ...(rol === "admin" ? [{ href: "/cargas", t: "Cargas" }] : []),
+    ...(rol === "admin" ? [{ href: "/cargas", t: "Cargas" }, { href: "/usuarios", t: "Usuarios" }] : []),
   ];
   return (
     <header className="border-b border-slate-200 dark:border-slate-700">

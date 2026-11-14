@@ -10,13 +10,13 @@ escaneando VINs en el patio, con validación en vivo, cola offline y reporte de 
 ## 1. Configurar Supabase
 
 1. Crea un proyecto en <https://supabase.com>.
-2. En **SQL Editor** ejecuta, en orden, `supabase/migrations/0001_esquema.sql`, `0002_fase2.sql`, `0003_segmento_fl360.sql`, `0004_unidades_ausentes.sql`, `0005_endurecimiento.sql` y `supabase/seed.sql`
+2. En **SQL Editor** ejecuta, en orden, `supabase/migrations/0001_esquema.sql`, `0002_fase2.sql`, `0003_segmento_fl360.sql`, `0004_unidades_ausentes.sql`, `0005_endurecimiento.sql`, `0006_usuarios.sql` y `supabase/seed.sql`
    (o usa `supabase db push` con la CLI). `seed.sql` crea las 4 localidades (Patio Vallarta, Zapopan, Guadalajara, Laredo) **sin divisiones**: asígnalas con `update localidades set divisiones = '{6056}' where nombre = 'Laredo';` cuando se sepa a qué localidad corresponde cada Cod. Sucursal. Sin divisiones, las unidades importadas quedan sin ubicación y el primer conteo (con *actualizar ubicación*) la fija.
 3. En **Authentication → Providers** deja habilitado *Email*. Crea tus usuarios en
    **Authentication → Users** (o desactiva el registro público si solo invitas).
    - **El primer usuario creado queda como `admin`**. Los demás nacen **inactivos** (no ven nada) hasta que los actives.
    - **Desactiva el registro público** (Authentication → Sign In / Providers → *Allow new users to sign up*) y crea tu usuario antes que nadie: quien se registre primero en un proyecto vacío sería el admin.
-4. Activa usuarios y asigna roles y localidades en el SQL Editor:
+4. Activa usuarios y asigna roles y localidades desde la pantalla **Usuarios** de la app (solo admin). También puede hacerse por SQL:
 
 ```sql
 update perfiles set activo = true, rol = 'auditor' where id = (select id from auth.users where email = 'auditor@empresa.com');
@@ -98,6 +98,7 @@ Después del primer deploy, pon la URL del Worker (o tu dominio) como *Site URL*
 | `/unidades` | búsqueda por VIN/últimos dígitos y filtros (localidad, status, financiera, segmento, seguro, plan piso); **Exportar a Excel** respeta los filtros | todos |
 | `/unidades/[vin]` | ficha: ubicación + historial de conteos con fotos/observaciones, financiamiento y saldo, plan piso, seguro con semáforo, costo; alta de acuse de aseguradora (admin) | todos (auditor no ve costo ni saldo) |
 | `/dashboard` | global o por localidad: unidades y valor, por financiera y segmento, seguros vencidos/por vencer, plan piso ≤15/≤30 d, último conteo y % de coincidencia. Cada cifra enlaza al listado filtrado (accionable y exportable) | todos |
+| `/usuarios` | activar usuarios, asignar rol y localidades; tabla de permisos por rol | admin |
 | `/cargas` | importar Excel SAP o de financiera con mapeo de columnas configurable + bitácora | admin |
 
 ## Carga de Excel
