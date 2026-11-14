@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Barra } from "@/components/Barra";
 import { BadgePlanPiso, BadgeSeguro, BadgeStatus } from "@/components/Badges";
+import { ExportarUnidades } from "@/components/ExportarUnidades";
 import { miPerfil } from "@/lib/datos";
 import { aplicarFiltros, aQueryString, leerFiltros } from "@/lib/filtrosUnidades";
 import { FINANCIERAS } from "@/lib/importar";
@@ -79,7 +80,7 @@ export default async function Unidades({ searchParams }: { searchParams: Promise
 
         <div className="flex items-center justify-between text-sm">
           <p className="text-slate-500">{total.toLocaleString("es-MX")} unidades</p>
-          <a href={`/api/exportar/unidades?${aQueryString(f)}`} className="rounded-lg bg-emerald-600 text-white px-3 py-2 font-semibold">Exportar a Excel</a>
+          <ExportarUnidades filtros={f} verDinero={perfil.rol !== "auditor"} />
         </div>
         {error && <p className="rounded-lg bg-red-50 text-red-800 text-sm p-3">{error.message}</p>}
 

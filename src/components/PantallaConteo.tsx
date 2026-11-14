@@ -119,6 +119,11 @@ export function PantallaConteo({ conteo }: { conteo: ConteoInfo }) {
       {cerrado ? (
         <div className="mx-4 rounded-xl bg-slate-100 dark:bg-slate-800 p-4 text-center">
           <p className="mb-2">Esta sesión ya fue cerrada.</p>
+          {c.stats.pendientes > 0 && (
+            <p className="mb-2 text-red-700 text-sm">
+              {c.stats.pendientes} escaneo(s) de este teléfono no alcanzaron a sincronizarse antes del cierre y NO quedaron en el conteo. Avisa al responsable: se corrigen con una nueva sesión.
+            </p>
+          )}
           <Link className="underline font-medium" href={`/conteos/${conteo.id}/reporte`}>Ver reporte de diferencias</Link>
         </div>
       ) : (

@@ -186,7 +186,9 @@ export function procesarSAP(filas: Fila[], m: Mapeo, opc: OpcionesSAP = {}): Pro
       costo: parsearNumero(get(f, m, "costo")),
       // Fecha de alta explícita; si no, se deriva de la antigüedad (días) respecto a la fecha del reporte.
       fecha_alta_inventario: parsearFecha(get(f, m, "fecha_alta_inventario")) ?? (dias != null && dias >= 0 ? restarDias(base, Math.round(dias)) : null),
-      status: opc.statusFijo ?? statusCol,
+      // Sin columna de status, estar en el archivo de inventario significa "en inventario"
+      // (así una unidad marcada por error como vendida/facturada vuelve al reaparecer en SAP).
+      status: opc.statusFijo ?? statusCol ?? (m.status ? null : "en_inventario"),
     };
     if (porVin.has(vin)) duplicadas++; // el VIN es único: la última fila del archivo gana
     porVin.set(vin, fila);

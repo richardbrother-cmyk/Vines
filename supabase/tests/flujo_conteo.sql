@@ -80,6 +80,14 @@ do $$ begin
   exception when insufficient_privilege then null; end;
 end $$;
 
+-- fotos: solo a conteos abiertos y operables; nombres raros no revientan
+do $$ begin
+  assert puede_subir_foto(current_setting('t.cid') || '/x.jpg'), 'puede subir a su conteo abierto';
+  assert not puede_subir_foto('no-es-uuid/x.jpg'), 'ruta inválida';
+  assert not puede_subir_foto(gen_random_uuid()::text || '/x.jpg'), 'conteo inexistente';
+  assert conteo_de_foto('basura') is null, 'sin error de cast';
+end $$;
+
 -- vista previa de faltantes: solo A0003
 do $$ declare n int; begin
   select count(*) into n from conteo_faltantes_calc(current_setting('t.cid')::uuid); assert n = 1, 'un faltante';
@@ -111,6 +119,8 @@ do $$ begin
   begin perform cerrar_conteo(current_setting('t.cid')::uuid); raise exception 'debio fallar';
   exception when others then assert sqlerrm = 'conteo_cerrado', sqlerrm; end;
 end $$;
+
+do $$ begin assert not puede_subir_foto(current_setting('t.cid') || '/x.jpg'), 'no sube fotos a conteo cerrado'; end $$;
 
 -- === como consulta (sin asignación): ve todo, no opera ===
 reset role; set local role authenticated;

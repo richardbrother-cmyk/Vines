@@ -1,7 +1,7 @@
 // Sincronización de la cola local con Supabase. Idempotente: reintentar es seguro
 // (el servidor deduplica por client_id y por (conteo, vin)).
 import { crearClienteNavegador } from "./supabase/client";
-import { guardarItem, itemsDeConteo, type ItemCola } from "./offline";
+import { borrarItem, guardarItem, itemsDeConteo, obtenerItem, type ItemCola } from "./offline";
 import type { Resultado } from "./clasificar";
 
 const LOTE = 50;
@@ -60,11 +60,15 @@ async function ejecutar(conteoId: string): Promise<ResultadoSync> {
         await guardarItem({ ...it, estado: "error", error: r.error });
         out.errores++;
       } else {
-        // Si el VIN ya lo había registrado otro dispositivo, esta captura es duplicada: se descarta.
-        if (r.duplicado) {
-          await guardarItem({ ...it, estado: "enviado", resultado: r.resultado!, meta_sucia: false, foto: undefined });
+        if (r.duplicado && r.server_client_id) {
+          // El VIN ya lo había registrado otro dispositivo: esta captura se funde con el registro
+          // del servidor (se adopta su client_id para que "deshacer", notas y fotos apunten al real).
+          await borrarItem(it.client_id);
+          if (!(await obtenerItem(r.server_client_id))) {
+            await guardarItem({ ...it, client_id: r.server_client_id, estado: "enviado", resultado: r.resultado ?? it.resultado });
+          }
         } else {
-          await guardarItem({ ...it, estado: "enviado", resultado: r.resultado ?? it.resultado });
+          await guardarItem({ ...it, estado: "enviado", resultado: r.resultado ?? it.resultado, error: undefined });
         }
         out.enviados++;
       }
@@ -78,10 +82,10 @@ async function ejecutar(conteoId: string): Promise<ResultadoSync> {
       let path = it.foto_path;
       if (it.foto && !path) {
         path = `${conteoId}/${it.client_id}.jpg`;
-        const { error } = await sb.storage.from("conteo-fotos").upload(path, it.foto, {
-          contentType: "image/jpeg", upsert: true,
-        });
-        if (error) throw error;
+        // Sin upsert (no hay política de UPDATE en el bucket): si un intento anterior ya la subió,
+        // "ya existe" cuenta como éxito y se continúa con el registro de la ruta.
+        const { error } = await sb.storage.from("conteo-fotos").upload(path, it.foto, { contentType: "image/jpeg" });
+        if (error && !/exist|duplicate|409/i.test(`${error.message} ${(error as { statusCode?: string }).statusCode ?? ""}`)) throw error;
       }
       const { error } = await sb.rpc("actualizar_scan", {
         p_conteo: conteoId, p_client_id: it.client_id,

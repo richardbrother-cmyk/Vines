@@ -151,7 +151,7 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
       {tipo === "sap" && (
         <label className="block text-sm">Status de las unidades de este archivo
           <select value={statusFijo} onChange={(e) => setStatusFijo(e.target.value as typeof statusFijo)} className={sel}>
-            <option value="">Según la columna de status (o “en inventario” si no hay)</option>
+            <option value="">Según la columna de status; si no hay columna, todas en inventario</option>
             <option value="en_inventario">Todas en inventario</option>
             <option value="facturada_en_cartera">Todas facturadas en cartera</option>
             <option value="vendida">Todas vendidas / con salida</option>

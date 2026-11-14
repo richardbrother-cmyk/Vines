@@ -64,16 +64,24 @@ export function useConteo(conteo: ConteoInfo) {
 
       if (navigator.onLine) {
         const sb = crearClienteNavegador();
-        const { data, error } = await sb.rpc("conteo_catalogo", { p_conteo: conteo.id });
-        if (!error && data) {
-          const filas = data as EntradaCatalogo[];
+        // Paginado: PostgREST entrega máx. 1000 filas por petición y el inventario puede superarlo.
+        let filas: EntradaCatalogo[] | null = [];
+        let errCat: string | null = null;
+        for (let d = 0; filas; d += 1000) {
+          const { data, error } = await sb.rpc("conteo_catalogo", { p_conteo: conteo.id }).order("vin").range(d, d + 999);
+          if (error || !data) { errCat = error?.message ?? "No se pudo descargar el catálogo"; filas = null; break; }
+          filas.push(...(data as EntradaCatalogo[]));
+          if (data.length < 1000) break;
+        }
+        if (filas) {
           await guardarCatalogo(
             { conteo_id: conteo.id, localidad_id: conteo.localidad_id, descargado_en: new Date().toISOString() },
             filas,
           );
-          if (vivo) setCatalogo(new Map(filas.map((f) => [f.vin, f])));
+          const mapa = new Map(filas.map((f) => [f.vin, f] as const));
+          if (vivo) setCatalogo(mapa);
         } else if (!tieneLocal && vivo) {
-          setErrorCarga(error?.message ?? "No se pudo descargar el catálogo");
+          setErrorCarga(errCat);
         }
         const remotos = await descargarServidor(conteo.id);
         if (remotos) {

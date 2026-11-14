@@ -10,7 +10,7 @@ escaneando VINs en el patio, con validación en vivo, cola offline y reporte de 
 ## 1. Configurar Supabase
 
 1. Crea un proyecto en <https://supabase.com>.
-2. En **SQL Editor** ejecuta, en orden, `supabase/migrations/0001_esquema.sql`, `0002_fase2.sql`, `0003_segmento_fl360.sql`, `0004_unidades_ausentes.sql` y `supabase/seed.sql`
+2. En **SQL Editor** ejecuta, en orden, `supabase/migrations/0001_esquema.sql`, `0002_fase2.sql`, `0003_segmento_fl360.sql`, `0004_unidades_ausentes.sql`, `0005_endurecimiento.sql` y `supabase/seed.sql`
    (o usa `supabase db push` con la CLI). `seed.sql` crea las 4 localidades (Patio Vallarta, Zapopan, Guadalajara, Laredo) **sin divisiones**: asígnalas con `update localidades set divisiones = '{6056}' where nombre = 'Laredo';` cuando se sepa a qué localidad corresponde cada Cod. Sucursal. Sin divisiones, las unidades importadas quedan sin ubicación y el primer conteo (con *actualizar ubicación*) la fija.
 3. En **Authentication → Providers** deja habilitado *Email*. Crea tus usuarios en
    **Authentication → Users** (o desactiva el registro público si solo invitas).
@@ -48,6 +48,30 @@ La cámara requiere HTTPS (o `localhost`). Para probar en el celular usa el depl
 
 Importa el repo en Vercel, define `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 y despliega (`vercel deploy`). En el celular: *Compartir → Agregar a pantalla de inicio* para instalarla como app.
+
+## 4b. Desplegar en Cloudflare Workers (alternativa a Vercel)
+
+El repo incluye `wrangler.jsonc` y `open-next.config.ts` (adaptador `@opennextjs/cloudflare`).
+El Worker pesa ~1.7 MB comprimido y toda la generación de Excel ocurre en el navegador.
+
+**Desde tu computadora**
+
+```bash
+cp .env.example .env.local        # pon NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY
+npx wrangler login
+npm run cf:deploy                 # compila con OpenNext y publica el Worker "inventario-vehiculos"
+npm run cf:preview                # (opcional) probar antes en el runtime local de Workers
+```
+
+**Con Workers Builds (deploy automático al hacer push)**: en el panel de Cloudflare → Workers → *Create* →
+*Import a repository*; Build command `npx opennextjs-cloudflare build`, Deploy command `npx wrangler deploy`,
+y en **Build variables** define `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+
+> Las variables `NEXT_PUBLIC_*` se incrustan **al compilar**: deben existir en el entorno de build
+> (`.env.local` o Build variables), no basta con ponerlas como variables del Worker. Si cambian, hay que recompilar.
+> No subas `SUPABASE_SERVICE_ROLE_KEY` a Cloudflare: la app no la usa.
+
+Después del primer deploy, pon la URL del Worker (o tu dominio) como *Site URL* en Supabase → Authentication → URL Configuration.
 
 ## Cómo funciona el conteo
 
