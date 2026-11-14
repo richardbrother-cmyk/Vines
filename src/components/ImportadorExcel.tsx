@@ -79,9 +79,13 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
     if (!esFoto || vinsArchivo.length === 0) return;
     let vivo = true;
     const t = setTimeout(async () => {
-      const { data, error } = await crearClienteNavegador().rpc("unidades_ausentes", { p_vins: vinsArchivo, p_divisiones: divisionesAlcance });
-      if (!vivo) return;
-      if (error) { setErrAus(error.message); setAusentes(null); } else { setErrAus(null); setAusentes(data as Ausentes); }
+      try {
+        const { data, error } = await crearClienteNavegador().rpc("unidades_ausentes", { p_vins: vinsArchivo, p_divisiones: divisionesAlcance });
+        if (!vivo) return;
+        if (error) { setErrAus(error.message); setAusentes(null); } else { setErrAus(null); setAusentes(data as Ausentes); }
+      } catch (e) {
+        if (vivo) setErrAus(e instanceof Error ? e.message : String(e));
+      }
     }, 600);
     return () => { vivo = false; clearTimeout(t); };
   }, [esFoto, vinsArchivo, divisionesAlcance, recarga]);
@@ -90,9 +94,9 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
     if (!accion || !ausentes) return;
     setConfirmarAus(false);
     // p_esperadas: el servidor aborta si la cantidad ya no es la que se mostró en pantalla.
-    const { data, error } = await crearClienteNavegador().rpc("marcar_ausentes", {
+    const { data, error } = await (async () => crearClienteNavegador().rpc("marcar_ausentes", {
       p_vins: vinsArchivo, p_status: accion, p_divisiones: divisionesAlcance, p_esperadas: ausentes.ausentes_total,
-    });
+    }))().catch((e) => ({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }));
     if (error) {
       setErrAus(error.message.includes("cantidad_distinta") ? "La lista cambió mientras confirmabas; se volvió a calcular. Revísala y aplica de nuevo." : error.message);
       setRecarga((n) => n + 1);
@@ -108,12 +112,12 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
   async function importar() {
     if (!proc || !lectura) return;
     setError(null); setResultado(null); setErrImport(null);
-    const sb = crearClienteNavegador();
     const fn = tipo === "sap" ? "importar_unidades" : "importar_financiamientos";
     let ins = 0, upd = 0;
     const omitidas: string[] = [];
     let fallo: string | null = null;
     try {
+      const sb = crearClienteNavegador();
       for (let i = 0; i < proc.validas.length; i += LOTE) {
         setProgreso(`Importando ${Math.min(i + LOTE, proc.validas.length)} de ${proc.validas.length}…`);
         const { data, error } = await sb.rpc(fn, { p_filas: proc.validas.slice(i, i + LOTE) });
@@ -203,7 +207,9 @@ export function ImportadorExcel({ mapeosGuardados }: { mapeosGuardados: Partial<
             <div className="space-y-2">
               {campos.map((c) => (
                 <label key={c.clave} className="grid grid-cols-2 gap-2 items-center text-sm">
-                  <span>{c.etiqueta}{c.requerido && " *"}</span>
+                  <span>{c.etiqueta}{c.requerido && " *"}
+                    {c.clave === "tipo" && tipo === "sap" && !mapeo.tipo && <span className="block text-xs text-slate-500">Sin columna: seminuevos = usada, el resto = nueva</span>}
+                  </span>
                   <select value={mapeo[c.clave] ?? ""} onChange={(e) => setMapeo({ ...mapeo, [c.clave]: e.target.value })} className={sel}>
                     <option value="">— sin mapear —</option>
                     {lectura.encabezados.map((h) => <option key={h}>{h}</option>)}

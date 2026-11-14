@@ -3,6 +3,8 @@
   "name": "inventario-vehiculos",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-06-01",
+  // Conserva las variables definidas en el panel (Settings → Variables and Secrets) entre despliegues.
+  "keep_vars": true,
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
     "directory": ".open-next/assets",
