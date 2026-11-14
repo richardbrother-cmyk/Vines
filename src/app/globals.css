@@ -3,3 +3,10 @@
 :root { color-scheme: light dark; }
 body { @apply bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100 antialiased; }
 button, a, input { -webkit-tap-highlight-color: transparent; }
+
+/* Las opciones de un <select> no heredan el fondo transparente del control: sin esto, en modo
+   oscuro salían con letra clara sobre fondo blanco. */
+select option, select optgroup { background-color: #ffffff; color: #0f172a; }
+@media (prefers-color-scheme: dark) {
+  select option, select optgroup { background-color: #1e293b; color: #f1f5f9; }
+}
