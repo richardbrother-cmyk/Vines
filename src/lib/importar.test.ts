@@ -107,9 +107,9 @@ describe("formato real de SAP (Inventario_gdl)", () => {
       fila(4, "FL360", "JLMCPG1A9TK000239", 5),
     ], m, { fechaReporte: "2026-11-13" });
     expect(r.errores).toEqual([]);
-    expect(r.validas[0]).toMatchObject({ fecha_alta_inventario: "2025-12-03", division_sap: "4105", segmento: "carga", tipo: null, status: "en_inventario" });
+    expect(r.validas[0]).toMatchObject({ fecha_alta_inventario: "2025-12-03", division_sap: "4105", segmento: "carga", tipo: "nueva", status: "en_inventario" });
     expect(r.validas[1]).toMatchObject({ segmento: "seminuevos", tipo: "usada" });
-    expect(r.validas[2].segmento).toBe("fl360");
+    expect(r.validas[2]).toMatchObject({ segmento: "fl360", tipo: "nueva" });
     expect(r.sinReconocer?.segmento).toBeUndefined();
   });
   it("fecha de reporte vacía o antigüedad absurda no revientan", () => {

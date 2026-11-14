@@ -181,8 +181,9 @@ export function procesarSAP(filas: Fila[], m: Mapeo, opc: OpcionesSAP = {}): Pro
       vin,
       modelo: texto(get(f, m, "modelo")),
       anio: anio && anio >= 1980 && anio <= 2100 ? Math.round(anio) : null,
-      // Sin columna de tipo: los "seminuevos" son usadas; lo demás se deja sin definir (no se adivina).
-      tipo: normalizarTipo(get(f, m, "tipo")) ?? (segmento === "seminuevos" ? "usada" : null),
+      // Sin columna de tipo: el segmento "seminuevos" es el único con unidades usadas; el resto son nuevas.
+      // Si hay columna pero la celda no se reconoce, se deja vacío (no se pisa lo que haya en la base).
+      tipo: normalizarTipo(get(f, m, "tipo")) ?? (m.tipo ? null : segmento === "seminuevos" ? "usada" : "nueva"),
       segmento,
       lote_sap: texto(get(f, m, "lote_sap")),
       division_sap: texto(get(f, m, "division_sap")),
