@@ -33,7 +33,7 @@ Copia `.env.example` a `.env.local`:
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | URL del proyecto (Settings → API) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | clave `anon` (pública; la protege RLS) |
-| `SUPABASE_SERVICE_ROLE_KEY` | **solo** para `scripts/` de carga; nunca en Vercel como `NEXT_PUBLIC_*` |
+| `SUPABASE_SERVICE_ROLE_KEY` | clave maestra, **solo en el servidor**: la usan `scripts/` y el alta de usuarios desde la pantalla Usuarios. En Cloudflare/Vercel va como *secreto* de ejecución, nunca como variable de build ni `NEXT_PUBLIC_*`. Sin ella, la app funciona pero no puede crear cuentas |
 
 ## 3. Correr en local y datos demo
 
@@ -70,7 +70,7 @@ y en **Build variables** define `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABA
 
 > Las variables `NEXT_PUBLIC_*` se incrustan **al compilar**: deben existir en el entorno de build
 > (`.env.local` o Build variables), no basta con ponerlas como variables del Worker. Si cambian, hay que recompilar.
-> No subas `SUPABASE_SERVICE_ROLE_KEY` a Cloudflare: la app no la usa.
+> `SUPABASE_SERVICE_ROLE_KEY` es opcional: solo hace falta para crear usuarios desde la app. Si la usas, agrégala en Settings → Variables and Secrets como **Secret** (no en Build variables).
 
 Después del primer deploy, pon la URL del Worker (o tu dominio) como *Site URL* en Supabase → Authentication → URL Configuration.
 
@@ -98,7 +98,7 @@ Después del primer deploy, pon la URL del Worker (o tu dominio) como *Site URL*
 | `/unidades` | búsqueda por VIN/últimos dígitos y filtros (localidad, status, financiera, segmento, seguro, plan piso); **Exportar a Excel** respeta los filtros | todos |
 | `/unidades/[vin]` | ficha: ubicación + historial de conteos con fotos/observaciones, financiamiento y saldo, plan piso, seguro con semáforo, costo; alta de acuse de aseguradora (admin) | todos (auditor no ve costo ni saldo) |
 | `/dashboard` | global o por localidad: unidades y valor, por financiera y segmento, seguros vencidos/por vencer, plan piso ≤15/≤30 d, último conteo y % de coincidencia. Cada cifra enlaza al listado filtrado (accionable y exportable) | todos |
-| `/usuarios` | activar usuarios, asignar rol y localidades; tabla de permisos por rol | admin |
+| `/usuarios` | crear usuarios (requiere el secreto `SUPABASE_SERVICE_ROLE_KEY`), activarlos, asignar rol y localidades; tabla de permisos por rol | admin |
 | `/cargas` | importar Excel SAP o de financiera con mapeo de columnas configurable + bitácora | admin |
 
 ## Carga de Excel

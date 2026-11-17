@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { Barra } from "@/components/Barra";
 import { GestorUsuarios, type Usuario } from "@/components/GestorUsuarios";
+import { NuevoUsuario } from "@/components/NuevoUsuario";
+import { claveMaestraConfigurada } from "./acciones";
 import { miPerfil } from "@/lib/datos";
 import { crearClienteServidor } from "@/lib/supabase/server";
 
@@ -26,11 +28,26 @@ export default async function Usuarios() {
     sb.from("localidades").select("id,nombre").eq("activa", true).order("nombre"),
   ]);
 
+  const puedeCrear = await claveMaestraConfigurada();
+
   return (
     <>
       <Barra nombre={perfil.nombre} rol={perfil.rol} />
       <main className="mx-auto max-w-2xl p-4 space-y-6">
         <h1 className="text-xl font-bold">Usuarios y permisos</h1>
+        {puedeCrear ? (
+          <NuevoUsuario localidades={localidades ?? []} />
+        ) : (
+          <section className="rounded-2xl border border-amber-300 bg-amber-50 text-amber-900 p-4 text-sm space-y-2">
+            <h2 className="font-semibold">Para crear usuarios desde aquí falta un secreto en el servidor</h2>
+            <ol className="list-decimal pl-5 space-y-1">
+              <li>En Supabase → Project Settings → API Keys copia la clave <b>service_role</b> (o <b>secret</b>, empieza con <code>sb_secret_</code>).</li>
+              <li>En Cloudflare → tu Worker → Settings → <b>Variables and Secrets</b> agrega <code>SUPABASE_SERVICE_ROLE_KEY</code> de tipo <b>Secret</b> con ese valor.</li>
+              <li>Recarga esta página.</li>
+            </ol>
+            <p>Esa clave salta todos los permisos: nunca la pongas como variable de build ni con prefijo <code>NEXT_PUBLIC_</code>. Mientras tanto puedes crear cuentas en Supabase → Authentication → Users y activarlas abajo.</p>
+          </section>
+        )}
         {error ? (
           <p className="rounded-lg bg-red-50 text-red-800 text-sm p-3">
             No se pudo cargar la lista: {error.message}. Si acabas de actualizar la app, ejecuta la migración <code>0006_usuarios.sql</code> en Supabase.
@@ -40,12 +57,9 @@ export default async function Usuarios() {
         )}
 
         <section className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-sm space-y-2">
-          <h2 className="font-semibold">Cómo dar de alta a alguien</h2>
-          <ol className="list-decimal pl-5 space-y-1">
-            <li>En Supabase → Authentication → Users → <b>Add user</b>, crea la cuenta con correo y contraseña (marca <i>Auto Confirm User</i>).</li>
-            <li>Vuelve aquí: aparecerá en <b>Pendientes de activar</b>, sin acceso a nada.</li>
-            <li>Elige su rol, sus localidades si es auditor, marca <b>Activo</b> y guarda.</li>
-          </ol>
+          <h2 className="font-semibold">Altas y bajas</h2>
+          <p>Usa <b>Agregar usuario</b>: eliges correo, contraseña temporal, rol y localidades, y la cuenta queda activa de inmediato. Compártele la contraseña por un medio seguro.</p>
+          <p>Las cuentas creadas directamente en Supabase aparecen en <b>Pendientes de activar</b>, sin acceso, hasta que las actives aquí.</p>
           <p className="text-slate-500">Para dar de baja a alguien, desmarca <b>Activo</b>: deja de ver cualquier dato al instante y conserva su historial.</p>
         </section>
 
